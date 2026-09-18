@@ -52,7 +52,7 @@ body {
   flex-direction: column;
   height: 100vh;
   height: 100dvh;
-  max-width: 500px;
+  max-width: 520px;
   margin: 0 auto;
 }
 
@@ -169,14 +169,14 @@ body {
 }
 
 .tile {
-  width: clamp(50px, 13vw, 62px);
-  height: clamp(50px, 13vw, 62px);
+  width: clamp(46px, 11.8vw, 58px);
+  height: clamp(46px, 11.8vw, 58px);
   border: 2px solid var(--tile-border);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-size: clamp(1.4rem, 4.8vw, 1.85rem);
   font-weight: 700;
   color: var(--text-primary);
   background: var(--bg-secondary);
@@ -200,16 +200,17 @@ body {
 
 /* --- Keyboard --- */
 .keyboard-container {
-  padding: 6px 6px;
-  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  padding: 8px 4px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
   flex-shrink: 0;
+  width: 100%;
 }
 
 .keyboard-row {
   display: flex;
   justify-content: center;
-  gap: 3px;
-  margin-bottom: 3px;
+  gap: 4px;
+  margin-bottom: 5px;
 }
 
 .key {
@@ -217,30 +218,31 @@ body {
   align-items: center;
   justify-content: center;
   flex: 1;
-  max-width: 42px;
-  height: clamp(44px, 9vw, 58px);
+  max-width: 48px;
+  height: clamp(52px, 12.5vw, 66px);
   padding: 0;
   background: var(--key-bg);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   font-family: var(--font);
-  font-size: clamp(0.78rem, 2.5vw, 0.95rem);
-  font-weight: 600;
+  font-size: clamp(0.95rem, 3.8vw, 1.25rem);
+  font-weight: 700;
   cursor: pointer;
   color: var(--text-primary);
-  transition: background var(--transition), color var(--transition);
+  transition: background var(--transition), transform 0.1s;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
-.key:active { transform: scale(0.93); }
+.key:active { transform: scale(0.92); }
 
 .key.wide {
   flex: 1.6;
-  max-width: 66px;
-  font-size: clamp(0.6rem, 1.8vw, 0.72rem);
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  max-width: 72px;
+  font-size: clamp(0.72rem, 2.6vw, 0.88rem);
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .key.key-enter {
@@ -254,6 +256,7 @@ body {
 .key.key-backspace {
   background: #E74C3C;
   color: #fff;
+  font-size: clamp(1rem, 3.5vw, 1.25rem);
 }
 .key.key-backspace:active {
   background: #C0392B;
