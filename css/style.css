@@ -116,6 +116,52 @@ body {
   min-height: 0;
 }
 
+/* --- Mode Toggle --- */
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--key-bg);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.mode-btn {
+  padding: 7px 18px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.mode-btn.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+.mode-btn[data-mode="practice"].active {
+  background: linear-gradient(135deg, #4ECDC4, #45B7D1);
+  color: #fff;
+}
+
+.mode-indicator {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  min-height: 18px;
+  text-align: center;
+}
+.mode-indicator.practice {
+  color: #4ECDC4;
+}
+
 /* --- Timer --- */
 .timer {
   font-size: 1.05rem;

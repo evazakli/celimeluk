@@ -1,7 +1,7 @@
 // Çelimeluk - Main Application
 // Orchestrates all modules: game logic, keyboard, UI, Firebase, leaderboard, stats, share
 
-import { getWordOfDay, isValidWord } from './words.js';
+import { getWordOfDay, isValidWord, getRandomWord } from './words.js';
 import { Game } from './game.js';
 import { createKeyboard, updateKeyboardColors, setupPhysicalKeyboard } from './keyboard.js';
 import {
@@ -23,11 +23,13 @@ let game = null;
 let dayInfo = null;
 let playerName = '';
 let timerInterval = null;
+let currentMode = 'daily'; // 'daily' | 'practice'
 
 // --- DOM References ---
 const boardEl = document.getElementById('game-board');
 const keyboardEl = document.getElementById('keyboard-container');
 const timerEl = document.getElementById('timer');
+const modeIndicator = document.getElementById('mode-indicator');
 
 // --- Initialize ---
 async function init() {
@@ -39,6 +41,7 @@ async function init() {
   setupPhysicalKeyboard(handleKeyPress);
   setupModalCloseButtons();
   setupButtons();
+  setupModeToggle();
 
   // Setup leaderboard tabs
   setupLeaderboardTabs(async (period) => {
@@ -55,7 +58,7 @@ async function init() {
   // Check for saved game
   const savedGame = loadGameState();
   if (savedGame && savedGame.targetWord === dayInfo.word) {
-    // Restore existing game
+    // Restore existing daily game
     game = Game.deserialize(savedGame);
     restoreGameUI();
 
@@ -70,9 +73,11 @@ async function init() {
       startTimer();
     }
   } else {
-    // New game
+    // New daily game
     game = new Game(dayInfo.word);
   }
+
+  updateModeIndicator();
 
   // Check player name
   playerName = localStorage.getItem(NAME_KEY) || '';
@@ -81,8 +86,84 @@ async function init() {
   }
 
   // If game is already completed and player name exists, ensure score is submitted to Firestore
-  if (game.isGameOver && playerName) {
+  if (game.isGameOver && playerName && currentMode === 'daily') {
     submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+  }
+}
+
+// --- Mode Toggle ---
+function setupModeToggle() {
+  const modeBtns = document.querySelectorAll('.mode-btn');
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const newMode = btn.getAttribute('data-mode');
+      if (newMode === currentMode) return;
+
+      modeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      switchMode(newMode);
+    });
+  });
+}
+
+function switchMode(mode) {
+  currentMode = mode;
+  stopTimer();
+
+  if (mode === 'daily') {
+    loadDailyGame();
+  } else {
+    startPracticeGame();
+  }
+
+  updateModeIndicator();
+}
+
+function loadDailyGame() {
+  dayInfo = getWordOfDay();
+  resetBoard();
+
+  const savedGame = loadGameState();
+  if (savedGame && savedGame.targetWord === dayInfo.word) {
+    game = Game.deserialize(savedGame);
+    restoreGameUI();
+    if (game.isGameOver) {
+      updateKeyboardColors(keyboardEl, game.letterStatuses);
+      timerEl.textContent = formatTime(game.getElapsedSeconds());
+    } else {
+      startTimer();
+    }
+  } else {
+    game = new Game(dayInfo.word);
+    timerEl.textContent = '00:00.0';
+  }
+}
+
+function startPracticeGame() {
+  const word = getRandomWord();
+  resetBoard();
+  game = new Game(word);
+  timerEl.textContent = '00:00.0';
+}
+
+function resetBoard() {
+  createBoard(boardEl);
+  createKeyboard(keyboardEl, handleKeyPress);
+  // Reset keyboard key colors
+  const allKeys = keyboardEl.querySelectorAll('.key');
+  allKeys.forEach(k => k.classList.remove('correct', 'present', 'absent'));
+}
+
+function updateModeIndicator() {
+  if (!modeIndicator) return;
+
+  if (currentMode === 'daily') {
+    modeIndicator.textContent = `📅 Günün Kelimesi #${dayInfo.dayNumber}`;
+    modeIndicator.className = 'mode-indicator';
+  } else {
+    modeIndicator.textContent = '🎯 Serbest Alıştırma — Sınırsız Oyna!';
+    modeIndicator.className = 'mode-indicator practice';
   }
 }
 
@@ -141,8 +222,10 @@ function submitGuess() {
     }
   });
 
-  // Save state
-  saveGameState();
+  // Save state (only for daily)
+  if (currentMode === 'daily') {
+    saveGameState();
+  }
 }
 
 // --- Game End ---
@@ -156,20 +239,30 @@ function onGameWon(guessCount) {
   // Confetti
   setTimeout(() => showConfetti(), 300);
 
-  // Update local stats
-  const stats = updateStats(true, guessCount, elapsed);
   const score = calculateGameScore(true, guessCount, elapsed);
 
-  // Show result
-  setTimeout(() => {
-    showResultModal(true, guessCount, elapsed, game.targetWord, score);
-    renderStats(document.getElementById('stats-content'), stats, guessCount);
-  }, 1800);
+  if (currentMode === 'daily') {
+    // Update local stats
+    const stats = updateStats(true, guessCount, elapsed);
 
-  // Submit score to Firebase
-  submitScoreToFirebase(guessCount, elapsed, true);
+    // Show result
+    setTimeout(() => {
+      showResultModal(true, guessCount, elapsed, game.targetWord, score);
+      renderStats(document.getElementById('stats-content'), stats, guessCount);
+      updateResultModalForMode();
+    }, 1800);
 
-  saveGameState();
+    // Submit score to Firebase
+    submitScoreToFirebase(guessCount, elapsed, true);
+
+    saveGameState();
+  } else {
+    // Practice mode — no stats, no Firebase
+    setTimeout(() => {
+      showResultModal(true, guessCount, elapsed, game.targetWord, score);
+      updateResultModalForMode();
+    }, 1800);
+  }
 }
 
 function onGameLost(targetWord) {
@@ -178,19 +271,51 @@ function onGameLost(targetWord) {
 
   showToast(targetWord.toLocaleUpperCase('tr-TR'), 3000);
 
-  const stats = updateStats(false, 0, elapsed);
+  if (currentMode === 'daily') {
+    const stats = updateStats(false, 0, elapsed);
 
-  setTimeout(() => {
-    showResultModal(false, 0, elapsed, targetWord);
-    renderStats(document.getElementById('stats-content'), stats);
-  }, 2500);
+    setTimeout(() => {
+      showResultModal(false, 0, elapsed, targetWord);
+      renderStats(document.getElementById('stats-content'), stats);
+      updateResultModalForMode();
+    }, 2500);
 
-  submitScoreToFirebase(0, elapsed, false);
+    submitScoreToFirebase(0, elapsed, false);
 
-  saveGameState();
+    saveGameState();
+  } else {
+    // Practice mode
+    setTimeout(() => {
+      showResultModal(false, 0, elapsed, targetWord);
+      updateResultModalForMode();
+    }, 2500);
+  }
+}
+
+function updateResultModalForMode() {
+  const shareBtn = document.getElementById('btn-share');
+  const leaderboardBtn = document.getElementById('btn-show-leaderboard');
+  const newPracticeBtn = document.getElementById('btn-new-practice');
+  const nextWordTimer = document.getElementById('next-word-timer');
+
+  if (currentMode === 'practice') {
+    // Practice mode: hide share/leaderboard/countdown, show new game button
+    if (shareBtn) shareBtn.style.display = 'none';
+    if (leaderboardBtn) leaderboardBtn.style.display = 'none';
+    if (newPracticeBtn) newPracticeBtn.style.display = '';
+    if (nextWordTimer) nextWordTimer.style.display = 'none';
+  } else {
+    // Daily mode: show share/leaderboard/countdown, hide new game button
+    if (shareBtn) shareBtn.style.display = '';
+    if (leaderboardBtn) leaderboardBtn.style.display = '';
+    if (newPracticeBtn) newPracticeBtn.style.display = 'none';
+    if (nextWordTimer) nextWordTimer.style.display = '';
+  }
 }
 
 async function submitScoreToFirebase(guessCount, elapsed, won) {
+  if (currentMode !== 'daily') return; // Never submit practice scores
+
   if (!playerName) {
     playerName = localStorage.getItem(NAME_KEY) || '';
   }
@@ -225,11 +350,14 @@ function stopTimer() {
     clearInterval(timerInterval);
     timerInterval = null;
   }
-  timerEl.textContent = formatTime(game.getElapsedSeconds());
+  if (game) {
+    timerEl.textContent = formatTime(game.getElapsedSeconds());
+  }
 }
 
-// --- Game State Persistence ---
+// --- Game State Persistence (Daily only) ---
 function saveGameState() {
+  if (currentMode !== 'daily') return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(game.serialize()));
   } catch (e) {
@@ -271,7 +399,7 @@ function setupButtons() {
   // Stats
   document.getElementById('btn-stats')?.addEventListener('click', () => {
     const stats = getStats();
-    const lastGuess = game?.won ? game.guesses.length : null;
+    const lastGuess = (game?.won && currentMode === 'daily') ? game.guesses.length : null;
     renderStats(document.getElementById('stats-content'), stats, lastGuess);
     openModal('stats-modal');
   });
@@ -312,7 +440,7 @@ function setupButtons() {
       updatePlayerBadge();
       closeModal('name-modal');
 
-      if (game && game.isGameOver) {
+      if (game && game.isGameOver && currentMode === 'daily') {
         await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
         // Refresh leaderboard if open
         const modal = document.getElementById('leaderboard-modal');
@@ -338,6 +466,12 @@ function setupButtons() {
   document.getElementById('btn-show-leaderboard')?.addEventListener('click', async () => {
     closeModal('result-modal');
     setTimeout(openLeaderboardWithData, 300);
+  });
+
+  // New practice game from result modal
+  document.getElementById('btn-new-practice')?.addEventListener('click', () => {
+    closeModal('result-modal');
+    startPracticeGame();
   });
 }
 

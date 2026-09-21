@@ -36,6 +36,11 @@
     </header>
 
     <main class="game-area">
+      <div class="mode-toggle">
+        <button class="mode-btn active" data-mode="daily">📅 Günlük</button>
+        <button class="mode-btn" data-mode="practice">🎯 Alıştırma</button>
+      </div>
+      <div id="mode-indicator" class="mode-indicator"></div>
       <div id="timer" class="timer">00:00.0</div>
       <div id="toast-container" class="toast-container"></div>
       <div id="game-board" class="game-board"></div>
@@ -162,6 +167,7 @@
             Paylaş
           </button>
           <button id="btn-show-leaderboard" class="btn btn-secondary">Sıralama 🏆</button>
+          <button id="btn-new-practice" class="btn btn-secondary" style="display:none">🔄 Yeni Oyun</button>
         </div>
         <div id="next-word-timer" class="next-word-timer">
           <p>Sonraki kelime: <span id="countdown"></span></p>

@@ -5648,3 +5648,8 @@ export function getWordOfDay(date = new Date()) {
 export function isValidWord(word) {
   return WORDS.includes(word.toLocaleLowerCase('tr-TR'));
 }
+
+export function getRandomWord() {
+  const index = Math.floor(Math.random() * WORDS.length);
+  return WORDS[index];
+}
