@@ -522,13 +522,17 @@ function setupButtons() {
         }
       }
     } catch (err) {
-      console.warn('Google giriş hatası:', err);
-      if (err.code === 'auth/operation-not-allowed') {
-        showToast('Firebase Console\'da Google girişi henüz etkinleştirilmemiş!', 5000);
+      console.error('Google giriş hatası detayı:', err);
+      if (err.code === 'auth/unauthorized-domain') {
+        showToast('Yetkisiz alan adı! Firebase Console > Settings > Authorized Domains listesine "evazakli.github.io" eklenmeli.', 7000);
+      } else if (err.code === 'auth/operation-not-allowed') {
+        showToast('Firebase Console\'da Google girişi henüz etkinleştirilmemiş! Lütfen Console\'dan açın.', 6000);
       } else if (err.code === 'auth/popup-blocked') {
-        showToast('Açılır pencere engellendi, lütfen izin verin.', 4000);
-      } else if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-        showToast('Giriş tamamlanamadı. Tekrar deneyin.', 3000);
+        showToast('Tarayıcınız açılır pencereyi engelledi. Lütfen izin verin.', 4000);
+      } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
+        showToast('Giriş penceresi kapatıldı.', 2500);
+      } else {
+        showToast(`Giriş başarısız (${err.code || 'Hata'}): ${err.message || 'Lütfen tekrar deneyin.'}`, 5000);
       }
     } finally {
       if (btn) btn.disabled = false;

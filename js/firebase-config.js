@@ -58,20 +58,21 @@ export function initFirebase() {
         console.warn('Redirect result check:', redirectErr.message);
       }
 
-      // Check if user is already signed in
+      // Listen continuously to auth state changes
       return new Promise((resolve) => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-          unsubscribe();
+        let firstCheckDone = false;
+        onAuthStateChanged(auth, (user) => {
+          currentUser = user;
+          firebaseReady = true;
           if (user) {
-            currentUser = user;
-            firebaseReady = true;
-            console.log('Mevcut oturum bulundu:', user.displayName || user.uid);
-            notifyAuthListeners();
-            resolve(user.uid);
+            console.log('Firebase oturumu aktif:', user.displayName || user.uid);
           } else {
-            // No user signed in — Firebase is ready but no user
-            firebaseReady = true;
-            resolve(null);
+            console.log('Firebase oturumu yok (misafir).');
+          }
+          notifyAuthListeners();
+          if (!firstCheckDone) {
+            firstCheckDone = true;
+            resolve(user ? user.uid : null);
           }
         });
       });
