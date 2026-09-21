@@ -116,14 +116,12 @@ export async function signInWithGoogle() {
     console.log('Google girişi başarılı:', currentUser.displayName);
     return currentUser;
   } catch (err) {
-    if (err.code === 'auth/popup-blocked' ||
-        err.code === 'auth/popup-closed-by-user' ||
-        err.code === 'auth/cancelled-popup-request') {
-      console.log('Popup başarısız veya engellendi, redirect deneniyor...');
+    console.warn('Google giriş denemesi kodu:', err.code, err.message);
+    if (err.code === 'auth/popup-blocked') {
+      console.log('Açılır pencere engellendi, redirect deneniyor...');
       await signInWithRedirect(auth, provider);
       return null;
     }
-    console.error('Google giriş hatası:', err);
     throw err;
   }
 }

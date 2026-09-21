@@ -485,22 +485,28 @@ function setupButtons() {
   document.getElementById('btn-leaderboard')?.addEventListener('click', openLeaderboardWithData);
 
   // Profile / Auth button in header
-  document.getElementById('btn-auth')?.addEventListener('click', () => {
+  document.getElementById('btn-auth')?.addEventListener('click', (e) => {
+    e.preventDefault();
     showNameModal();
   });
 
   // Change name / Account button in leaderboard
-  const handleAccountClick = () => {
+  const handleAccountClick = (e) => {
+    if (e) e.preventDefault();
     closeModal('leaderboard-modal');
-    showNameModal();
+    setTimeout(() => {
+      showNameModal();
+    }, 120);
   };
   document.getElementById('btn-change-name')?.addEventListener('click', handleAccountClick);
   document.getElementById('player-badge-btn')?.addEventListener('click', handleAccountClick);
 
   // Google Login Button
   document.getElementById('btn-google-login')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-google-login');
     try {
-      showToast('Google ile giriş yapılıyor...');
+      if (btn) btn.disabled = true;
+      showToast('Google penceresi açılıyor...');
       const user = await signInWithGoogle();
       if (user) {
         playerName = user.displayName || 'Oyuncu';
@@ -516,9 +522,16 @@ function setupButtons() {
         }
       }
     } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-        showToast('Google girişi başarısız oldu. Lütfen tekrar deneyin.');
+      console.warn('Google giriş hatası:', err);
+      if (err.code === 'auth/operation-not-allowed') {
+        showToast('Firebase Console\'da Google girişi henüz etkinleştirilmemiş!', 5000);
+      } else if (err.code === 'auth/popup-blocked') {
+        showToast('Açılır pencere engellendi, lütfen izin verin.', 4000);
+      } else if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+        showToast('Giriş tamamlanamadı. Tekrar deneyin.', 3000);
       }
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 

@@ -194,12 +194,25 @@ export function showConfetti() {
 
 export function openModal(id) {
   const modal = document.getElementById(id);
-  if (modal && !modal.open) modal.showModal();
+  if (!modal) return;
+  if (modal.open) {
+    try { modal.close(); } catch (e) {}
+  }
+  try {
+    modal.showModal();
+  } catch (err) {
+    console.warn('showModal fallback:', err);
+    modal.setAttribute('open', '');
+  }
 }
 
 export function closeModal(id) {
   const modal = document.getElementById(id);
-  if (modal && modal.open) modal.close();
+  if (!modal) return;
+  if (modal.open) {
+    try { modal.close(); } catch (e) {}
+  }
+  modal.removeAttribute('open');
 }
 
 export function setupModalCloseButtons() {
