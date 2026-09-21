@@ -472,6 +472,149 @@ body {
 .btn-secondary { background: var(--key-bg); color: var(--text-primary); }
 .btn-secondary:hover { background: var(--key-bg-hover); }
 
+/* --- Google & Auth Styles --- */
+.btn-google {
+  width: 100%;
+  background: #ffffff;
+  color: #3c4043;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 3px rgba(60,64,67,0.08);
+  font-weight: 600;
+  padding: 11px 18px;
+  border-radius: var(--radius-md);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s, box-shadow 0.2s, transform 0.1s;
+}
+.btn-google:hover {
+  background: #f8f9fa;
+  box-shadow: 0 2px 6px rgba(60,64,67,0.16);
+}
+.btn-google:active {
+  transform: scale(0.98);
+}
+.google-icon {
+  flex-shrink: 0;
+}
+
+.auth-intro {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  margin: 16px 0 14px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid var(--tile-border);
+}
+.auth-divider span {
+  padding: 0 10px;
+  opacity: 0.75;
+}
+
+/* User Profile Card */
+.user-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--tile-border);
+  border-radius: var(--radius-md);
+}
+.user-profile-img {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-accent);
+}
+.user-profile-info {
+  flex: 1;
+  min-width: 0;
+}
+.user-profile-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-profile-email {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+.user-profile-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #2E7D32;
+  background: #E8F5E9;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.btn-danger-outline {
+  background: transparent;
+  color: #D32F2F;
+  border: 1px solid #FFCDD2;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn-danger-outline:hover {
+  background: #FFEBEE;
+  border-color: #EF5350;
+}
+
+/* Avatar badge in header & leaderboard */
+.header-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--color-accent);
+  display: block;
+}
+.badge-avatar-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.badge-avatar-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
 /* --- Leaderboard & Analytical Ranking --- */
 .leaderboard-tabs {
   display: flex; gap: 4px;

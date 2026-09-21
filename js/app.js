@@ -1,5 +1,5 @@
 // Çelimeluk - Main Application
-// Orchestrates all modules: game logic, keyboard, UI, Firebase, leaderboard, stats, share
+// Orchestrates all modules: game logic, keyboard, UI, Firebase, leaderboard, stats, share, Google Auth
 
 import { getWordOfDay, isValidWord, getRandomWord } from './words.js';
 import { Game } from './game.js';
@@ -9,7 +9,11 @@ import {
   shakeRow, bounceRow, showToast, formatTime, showConfetti,
   openModal, closeModal, setupModalCloseButtons, showResultModal
 } from './ui.js';
-import { initFirebase, isFirebaseConfigured, isReady as isFirebaseReady, getUid } from './firebase-config.js';
+import {
+  initFirebase, isFirebaseConfigured, isReady as isFirebaseReady, getUid,
+  signInWithGoogle, signOutUser, onAuthChange, isSignedIn, getCurrentUser,
+  getDisplayName, getPhotoURL, ensureFirebaseReady
+} from './firebase-config.js';
 import { submitScore, getLeaderboard, renderLeaderboard, setupLeaderboardTabs, calculateGameScore } from './leaderboard.js';
 import { getStats, updateStats, renderStats } from './stats.js';
 import { generateShareText, shareResult } from './share.js';
@@ -50,10 +54,18 @@ async function init() {
     renderLeaderboard(scores, period);
   });
 
-  // Initialize Firebase (non-blocking)
+  // Listen to Firebase Auth state
+  onAuthChange((user) => {
+    handleAuthChange(user);
+  });
+
+  // Initialize Firebase
   if (isFirebaseConfigured()) {
     initFirebase().catch(err => console.warn('Firebase init failed:', err));
   }
+
+  // Load name from storage
+  playerName = localStorage.getItem(NAME_KEY) || '';
 
   // Check for saved game
   const savedGame = loadGameState();
@@ -79,15 +91,76 @@ async function init() {
 
   updateModeIndicator();
 
-  // Check player name
-  playerName = localStorage.getItem(NAME_KEY) || '';
-  if (!playerName) {
-    showNameModal();
+  // Show login/name modal if first time and not signed in
+  if (!playerName && !isSignedIn()) {
+    setTimeout(() => showNameModal(), 600);
   }
 
   // If game is already completed and player name exists, ensure score is submitted to Firestore
   if (game.isGameOver && playerName && currentMode === 'daily') {
     submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+  }
+}
+
+// --- Auth State Handler ---
+function handleAuthChange(user) {
+  if (user && !user.isAnonymous) {
+    playerName = user.displayName || playerName || 'Oyuncu';
+    localStorage.setItem(NAME_KEY, playerName);
+  } else {
+    playerName = localStorage.getItem(NAME_KEY) || '';
+  }
+  updateAuthUI(user);
+  updatePlayerBadge();
+}
+
+function updateAuthUI(user) {
+  const headerAuthIcon = document.getElementById('header-auth-icon');
+  const signedOutView = document.getElementById('auth-signed-out-view');
+  const signedInView = document.getElementById('auth-signed-in-view');
+  const modalTitle = document.getElementById('auth-modal-title');
+  const profileImg = document.getElementById('user-profile-img');
+  const profileName = document.getElementById('user-profile-name');
+  const profileEmail = document.getElementById('user-profile-email');
+  const changeNameBtn = document.getElementById('btn-change-name');
+
+  const isGoogleUser = user && !user.isAnonymous;
+
+  if (isGoogleUser) {
+    // Update header icon with Google avatar
+    if (headerAuthIcon) {
+      if (user.photoURL) {
+        headerAuthIcon.innerHTML = `<img class="header-avatar" src="${user.photoURL}" alt="Profil">`;
+      } else {
+        headerAuthIcon.innerHTML = `<span style="font-size:1.1rem">👤</span>`;
+      }
+    }
+
+    // Modal view
+    if (signedOutView) signedOutView.style.display = 'none';
+    if (signedInView) signedInView.style.display = 'block';
+    if (modalTitle) modalTitle.textContent = 'Profiliniz 👋';
+    if (profileImg) {
+      profileImg.src = user.photoURL || '';
+      profileImg.style.display = user.photoURL ? 'block' : 'none';
+    }
+    if (profileName) profileName.textContent = user.displayName || 'Oyuncu';
+    if (profileEmail) profileEmail.textContent = user.email || '';
+    if (changeNameBtn) changeNameBtn.textContent = 'Hesap';
+  } else {
+    // Signed out / Guest
+    if (headerAuthIcon) {
+      headerAuthIcon.innerHTML = `
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+      `;
+    }
+
+    if (signedOutView) signedOutView.style.display = 'block';
+    if (signedInView) signedInView.style.display = 'none';
+    if (modalTitle) modalTitle.textContent = 'Oyuncu Hesabı 👋';
+    if (changeNameBtn) changeNameBtn.textContent = 'Giriş Yap';
   }
 }
 
@@ -150,7 +223,6 @@ function startPracticeGame() {
 function resetBoard() {
   createBoard(boardEl);
   createKeyboard(keyboardEl, handleKeyPress);
-  // Reset keyboard key colors
   const allKeys = keyboardEl.querySelectorAll('.key');
   allKeys.forEach(k => k.classList.remove('correct', 'present', 'absent'));
 }
@@ -212,7 +284,6 @@ function submitGuess() {
 
   // Reveal the row with animation
   revealRow(boardEl, row, result.guess.letters, () => {
-    // Update keyboard colors after reveal
     updateKeyboardColors(keyboardEl, game.letterStatuses);
 
     if (result.won) {
@@ -233,31 +304,23 @@ function onGameWon(guessCount) {
   stopTimer();
   const elapsed = game.getElapsedSeconds();
 
-  // Bounce animation
   bounceRow(boardEl, game.currentRow - 1);
-
-  // Confetti
   setTimeout(() => showConfetti(), 300);
 
   const score = calculateGameScore(true, guessCount, elapsed);
 
   if (currentMode === 'daily') {
-    // Update local stats
     const stats = updateStats(true, guessCount, elapsed);
 
-    // Show result
     setTimeout(() => {
       showResultModal(true, guessCount, elapsed, game.targetWord, score);
       renderStats(document.getElementById('stats-content'), stats, guessCount);
       updateResultModalForMode();
     }, 1800);
 
-    // Submit score to Firebase
     submitScoreToFirebase(guessCount, elapsed, true);
-
     saveGameState();
   } else {
-    // Practice mode — no stats, no Firebase
     setTimeout(() => {
       showResultModal(true, guessCount, elapsed, game.targetWord, score);
       updateResultModalForMode();
@@ -281,10 +344,8 @@ function onGameLost(targetWord) {
     }, 2500);
 
     submitScoreToFirebase(0, elapsed, false);
-
     saveGameState();
   } else {
-    // Practice mode
     setTimeout(() => {
       showResultModal(false, 0, elapsed, targetWord);
       updateResultModalForMode();
@@ -299,13 +360,11 @@ function updateResultModalForMode() {
   const nextWordTimer = document.getElementById('next-word-timer');
 
   if (currentMode === 'practice') {
-    // Practice mode: hide share/leaderboard/countdown, show new game button
     if (shareBtn) shareBtn.style.display = 'none';
     if (leaderboardBtn) leaderboardBtn.style.display = 'none';
     if (newPracticeBtn) newPracticeBtn.style.display = '';
     if (nextWordTimer) nextWordTimer.style.display = 'none';
   } else {
-    // Daily mode: show share/leaderboard/countdown, hide new game button
     if (shareBtn) shareBtn.style.display = '';
     if (leaderboardBtn) leaderboardBtn.style.display = '';
     if (newPracticeBtn) newPracticeBtn.style.display = 'none';
@@ -314,10 +373,13 @@ function updateResultModalForMode() {
 }
 
 async function submitScoreToFirebase(guessCount, elapsed, won) {
-  if (currentMode !== 'daily') return; // Never submit practice scores
+  if (currentMode !== 'daily') return;
+
+  const user = getCurrentUser();
+  const photo = getPhotoURL();
 
   if (!playerName) {
-    playerName = localStorage.getItem(NAME_KEY) || '';
+    playerName = user?.displayName || localStorage.getItem(NAME_KEY) || '';
   }
   if (!playerName) {
     console.warn('Oyuncu ismi bulunamadı, isim modalı açılıyor.');
@@ -325,9 +387,10 @@ async function submitScoreToFirebase(guessCount, elapsed, won) {
     return;
   }
 
-  console.log('Skor gönderiliyor:', { playerName, guessCount, elapsed, won });
+  console.log('Skor gönderiliyor:', { playerName, photo, guessCount, elapsed, won });
   await submitScore({
     playerName,
+    photoURL: photo || '',
     date: new Date().toISOString().split('T')[0],
     dayNumber: dayInfo.dayNumber,
     guesses: guessCount,
@@ -382,11 +445,15 @@ function restoreGameUI() {
   }
 }
 
-// --- Name Modal ---
+// --- Name / Auth Modal ---
 function showNameModal() {
-  openModal('name-modal');
+  updateAuthUI(getCurrentUser());
   const input = document.getElementById('player-name-input');
-  setTimeout(() => input?.focus(), 100);
+  if (input) input.value = playerName || '';
+  openModal('name-modal');
+  if (!isSignedIn()) {
+    setTimeout(() => input?.focus(), 150);
+  }
 }
 
 // --- Button Setup ---
@@ -411,25 +478,66 @@ function setupButtons() {
     renderLeaderboardLoading();
     const scores = await getLeaderboard('daily');
     renderLeaderboard(scores, 'daily');
-    // Reset active tab
     document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
     document.querySelector('.tab-btn[data-period="daily"]')?.classList.add('active');
   };
 
   document.getElementById('btn-leaderboard')?.addEventListener('click', openLeaderboardWithData);
 
-  // Change name button
-  const handleChangeName = () => {
-    closeModal('leaderboard-modal');
-    const input = document.getElementById('player-name-input');
-    if (input) input.value = playerName || '';
-    openModal('name-modal');
-    setTimeout(() => input?.focus(), 100);
-  };
-  document.getElementById('btn-change-name')?.addEventListener('click', handleChangeName);
-  document.getElementById('player-badge-btn')?.addEventListener('click', handleChangeName);
+  // Profile / Auth button in header
+  document.getElementById('btn-auth')?.addEventListener('click', () => {
+    showNameModal();
+  });
 
-  // Name form
+  // Change name / Account button in leaderboard
+  const handleAccountClick = () => {
+    closeModal('leaderboard-modal');
+    showNameModal();
+  };
+  document.getElementById('btn-change-name')?.addEventListener('click', handleAccountClick);
+  document.getElementById('player-badge-btn')?.addEventListener('click', handleAccountClick);
+
+  // Google Login Button
+  document.getElementById('btn-google-login')?.addEventListener('click', async () => {
+    try {
+      showToast('Google ile giriş yapılıyor...');
+      const user = await signInWithGoogle();
+      if (user) {
+        playerName = user.displayName || 'Oyuncu';
+        localStorage.setItem(NAME_KEY, playerName);
+        showToast(`Hoş geldin, ${playerName}! 👋`);
+        updateAuthUI(user);
+        updatePlayerBadge();
+        closeModal('name-modal');
+
+        // If today's game is completed, submit score with Google identity
+        if (game && game.isGameOver && currentMode === 'daily') {
+          await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+        }
+      }
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+        showToast('Google girişi başarısız oldu. Lütfen tekrar deneyin.');
+      }
+    }
+  });
+
+  // Logout Button
+  document.getElementById('btn-logout')?.addEventListener('click', async () => {
+    await signOutUser();
+    playerName = '';
+    localStorage.removeItem(NAME_KEY);
+    showToast('Çıkış yapıldı.');
+    updateAuthUI(null);
+    updatePlayerBadge();
+  });
+
+  // Continue button in profile view
+  document.getElementById('btn-profile-continue')?.addEventListener('click', () => {
+    closeModal('name-modal');
+  });
+
+  // Guest / Name form submit
   document.getElementById('name-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = document.getElementById('player-name-input');
@@ -439,10 +547,10 @@ function setupButtons() {
       localStorage.setItem(NAME_KEY, name);
       updatePlayerBadge();
       closeModal('name-modal');
+      showToast(`Hoş geldin, ${name}!`);
 
       if (game && game.isGameOver && currentMode === 'daily') {
         await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
-        // Refresh leaderboard if open
         const modal = document.getElementById('leaderboard-modal');
         if (modal && modal.open) {
           const scores = await getLeaderboard('daily');
@@ -476,9 +584,20 @@ function setupButtons() {
 }
 
 function updatePlayerBadge() {
-  const badge = document.getElementById('current-player-name');
-  if (badge) {
-    badge.textContent = playerName || 'İsimsiz Oyuncu';
+  const badgeName = document.getElementById('current-player-name');
+  const badgeAvatar = document.getElementById('player-badge-avatar');
+  const photo = getPhotoURL();
+
+  if (badgeName) {
+    badgeName.textContent = playerName || 'İsimsiz Oyuncu';
+  }
+
+  if (badgeAvatar) {
+    if (photo) {
+      badgeAvatar.innerHTML = `<img class="badge-avatar-img" src="${photo}" alt="" onerror="this.style.display='none'">`;
+    } else {
+      badgeAvatar.textContent = '👤';
+    }
   }
 }
 

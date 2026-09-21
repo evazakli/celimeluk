@@ -1,11 +1,12 @@
-// Çelimeluk - Firebase Configuration & Auth
-// Replace the config values below with your Firebase project credentials
+// Çelimeluk - Firebase Configuration & Google Auth
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
+import {
+  getAuth, signInAnonymously, onAuthStateChanged,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut
+} from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
 
-// ⚠️ Firebase projenizin ayarlarını buraya yapıştırın
 const firebaseConfig = {
   apiKey: "AIzaSyCShNRq08SEG2cYzmFq-PSkF7xz875sURg",
   authDomain: "celimeluk.firebaseapp.com",
@@ -18,9 +19,12 @@ const firebaseConfig = {
 let app = null;
 let auth = null;
 let db = null;
-let currentUid = null;
+let currentUser = null;
 let firebaseReady = false;
 let initPromise = null;
+
+// Auth state change listeners
+const authListeners = [];
 
 export function isFirebaseConfigured() {
   return firebaseConfig.apiKey !== 'YOUR_API_KEY';
@@ -28,7 +32,7 @@ export function isFirebaseConfigured() {
 
 export function initFirebase() {
   if (!isFirebaseConfigured()) {
-    console.warn('Firebase yapılandırılmamış. Skor tablosu çevrimdışı çalışacak.');
+    console.warn('Firebase yapılandırılmamış.');
     return Promise.resolve(null);
   }
 
@@ -40,12 +44,37 @@ export function initFirebase() {
       auth = getAuth(app);
       db = getFirestore(app);
 
-      // Anonymous sign-in
-      const userCredential = await signInAnonymously(auth);
-      currentUid = userCredential.user.uid;
-      firebaseReady = true;
-      console.log('Firebase başarıyla bağlandı. UID:', currentUid);
-      return currentUid;
+      // Check for redirect result first (mobile Google sign-in)
+      try {
+        const redirectResult = await getRedirectResult(auth);
+        if (redirectResult?.user) {
+          currentUser = redirectResult.user;
+          firebaseReady = true;
+          console.log('Google redirect girişi başarılı:', currentUser.displayName);
+          notifyAuthListeners();
+          return currentUser.uid;
+        }
+      } catch (redirectErr) {
+        console.warn('Redirect result check:', redirectErr.message);
+      }
+
+      // Check if user is already signed in
+      return new Promise((resolve) => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+          unsubscribe();
+          if (user) {
+            currentUser = user;
+            firebaseReady = true;
+            console.log('Mevcut oturum bulundu:', user.displayName || user.uid);
+            notifyAuthListeners();
+            resolve(user.uid);
+          } else {
+            // No user signed in — Firebase is ready but no user
+            firebaseReady = true;
+            resolve(null);
+          }
+        });
+      });
     } catch (err) {
       console.error('Firebase başlatma hatası:', err);
       firebaseReady = false;
@@ -56,21 +85,90 @@ export function initFirebase() {
   return initPromise;
 }
 
+// Guest Sign-In (fallback for players who skip Google)
+export async function signInAsGuest() {
+  if (!auth) await initFirebase();
+  try {
+    const cred = await signInAnonymously(auth);
+    currentUser = cred.user;
+    firebaseReady = true;
+    notifyAuthListeners();
+    console.log('Misafir girişi yapıldı:', currentUser.uid);
+    return currentUser;
+  } catch (err) {
+    console.warn('Misafir giriş hatası:', err);
+    return null;
+  }
+}
+
+// Google Sign-In
+export async function signInWithGoogle() {
+  if (!auth) await initFirebase();
+
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+
+  try {
+    const result = await signInWithPopup(auth, provider);
+    currentUser = result.user;
+    firebaseReady = true;
+    notifyAuthListeners();
+    console.log('Google girişi başarılı:', currentUser.displayName);
+    return currentUser;
+  } catch (err) {
+    if (err.code === 'auth/popup-blocked' ||
+        err.code === 'auth/popup-closed-by-user' ||
+        err.code === 'auth/cancelled-popup-request') {
+      console.log('Popup başarısız veya engellendi, redirect deneniyor...');
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    console.error('Google giriş hatası:', err);
+    throw err;
+  }
+}
+
+// Sign out
+export async function signOutUser() {
+  if (!auth) return;
+  try {
+    await signOut(auth);
+    currentUser = null;
+    notifyAuthListeners();
+    console.log('Kullanıcı çıkış yaptı.');
+  } catch (err) {
+    console.error('Çıkış hatası:', err);
+  }
+}
+
+// Auth state listener
+export function onAuthChange(callback) {
+  authListeners.push(callback);
+  if (currentUser !== undefined) {
+    callback(currentUser);
+  }
+}
+
+function notifyAuthListeners() {
+  for (const cb of authListeners) {
+    try { cb(currentUser); } catch (e) { console.error(e); }
+  }
+}
+
 export async function ensureFirebaseReady() {
   if (!isFirebaseConfigured()) return false;
-  if (firebaseReady && currentUid) return true;
+  if (firebaseReady && currentUser) return true;
   await initFirebase();
-  return firebaseReady && currentUid !== null;
+  if (!currentUser) {
+    await signInAsGuest();
+  }
+  return firebaseReady && currentUser !== null;
 }
 
-export function getDb() {
-  return db;
-}
-
-export function getUid() {
-  return currentUid;
-}
-
-export function isReady() {
-  return firebaseReady && currentUid !== null;
-}
+export function getDb() { return db; }
+export function getUid() { return currentUser?.uid || null; }
+export function getDisplayName() { return currentUser?.displayName || null; }
+export function getPhotoURL() { return currentUser?.photoURL || null; }
+export function isSignedIn() { return currentUser !== null && !currentUser.isAnonymous; }
+export function isReady() { return firebaseReady && currentUser !== null; }
+export function getCurrentUser() { return currentUser; }

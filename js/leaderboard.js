@@ -27,7 +27,7 @@ export function calculateGameScore(won, guesses, time) {
 }
 
 // Submit a score after game completion
-export async function submitScore({ playerName, date, dayNumber, guesses, time, won }) {
+export async function submitScore({ playerName, photoURL, date, dayNumber, guesses, time, won }) {
   const ready = await ensureFirebaseReady();
   if (!ready) {
     console.warn('Firebase hazır olmadığı için skor kaydedilemedi.');
@@ -49,6 +49,7 @@ export async function submitScore({ playerName, date, dayNumber, guesses, time, 
     const scoreData = {
       uid,
       playerName: playerName || 'İsimsiz Oyuncu',
+      photoURL: photoURL || '',
       date,
       dayNumber,
       guesses: cleanGuesses,
@@ -61,7 +62,7 @@ export async function submitScore({ playerName, date, dayNumber, guesses, time, 
     await fs.setDoc(docRef, scoreData);
     console.log('Skor Firestore’a başarıyla kaydedildi:', docId, scoreData);
 
-    await updatePlayerProfile(playerName, won, cleanGuesses, calculatedPoints);
+    await updatePlayerProfile(playerName, photoURL, won, cleanGuesses, calculatedPoints);
 
     return docId;
   } catch (err) {
@@ -70,7 +71,7 @@ export async function submitScore({ playerName, date, dayNumber, guesses, time, 
   }
 }
 
-async function updatePlayerProfile(playerName, won, guesses, points) {
+async function updatePlayerProfile(playerName, photoURL, won, guesses, points) {
   const ready = await ensureFirebaseReady();
   if (!ready) return;
 
@@ -87,6 +88,7 @@ async function updatePlayerProfile(playerName, won, guesses, points) {
     if (playerSnap.exists()) {
       data = playerSnap.data();
       data.name = playerName;
+      if (photoURL) data.photoURL = photoURL;
       data.totalGames = (data.totalGames || 0) + 1;
       data.totalWins = (data.totalWins || 0) + (won ? 1 : 0);
       data.totalPoints = (data.totalPoints || 0) + (points || 0);
@@ -111,18 +113,19 @@ async function updatePlayerProfile(playerName, won, guesses, points) {
     } else {
       data = {
         name: playerName,
+        photoURL: photoURL || '',
         totalGames: 1,
         totalWins: won ? 1 : 0,
         totalPoints: points || 0,
         currentStreak: won ? 1 : 0,
         maxStreak: won ? 1 : 0,
-        lastPlayedDate: today,
+        lastPlayedDate: today
       };
     }
 
     await fs.setDoc(playerRef, data);
   } catch (err) {
-    console.error('Profil güncelleme hatası:', err);
+    console.error('Oyuncu profili güncellenemedi:', err);
   }
 }
 
@@ -212,6 +215,7 @@ function aggregateScores(scores) {
       playerMap.set(uid, {
         uid,
         playerName: s.playerName || 'İsimsiz Oyuncu',
+        photoURL: s.photoURL || '',
         games: 0,
         totalGuesses: 0,
         totalTime: 0,
@@ -229,6 +233,7 @@ function aggregateScores(scores) {
       p.totalTime += s.time;
     }
     if (s.playerName) p.playerName = s.playerName;
+    if (s.photoURL && !p.photoURL) p.photoURL = s.photoURL;
   }
 
   const result = [];
@@ -243,6 +248,7 @@ function aggregateScores(scores) {
     result.push({
       uid: p.uid,
       playerName: p.playerName,
+      photoURL: p.photoURL || '',
       totalPoints: p.totalPoints,
       avgPoints: Math.round(p.totalPoints / (p.games || 1)),
       guesses: Math.round(avgGuesses * 10) / 10,
@@ -294,20 +300,20 @@ export function renderLeaderboard(scores, period) {
     html += `<div class="podium-container">
       <div class="podium-card second">
         <div class="podium-medal">🥈</div>
-        <div class="podium-name">${escapeHtml(p2.playerName)}</div>
+        <div class="podium-name">${p2.photoURL ? `<img class="badge-avatar-img" src="${p2.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}${escapeHtml(p2.playerName)}</div>
         <div class="podium-points">${isDaily ? p2.points : p2.totalPoints} <span style="font-size:0.65rem">P</span></div>
         <div class="podium-sub">${isDaily ? `${p2.guesses} Deneme • ${formatLeaderboardTime(p2.time)}` : `%${p2.winRate} Galibiyet`}</div>
       </div>
       <div class="podium-card first">
         <div class="podium-medal">👑 🥇</div>
-        <div class="podium-name">${escapeHtml(p1.playerName)}</div>
+        <div class="podium-name">${p1.photoURL ? `<img class="badge-avatar-img" src="${p1.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}${escapeHtml(p1.playerName)}</div>
         <div class="podium-points">${isDaily ? p1.points : p1.totalPoints} <span style="font-size:0.65rem">P</span></div>
         <div class="podium-sub">${isDaily ? `${p1.guesses} Deneme • ${formatLeaderboardTime(p1.time)}` : `%${p1.winRate} Galibiyet`}</div>
       </div>
       ${p3 ? `
       <div class="podium-card third">
         <div class="podium-medal">🥉</div>
-        <div class="podium-name">${escapeHtml(p3.playerName)}</div>
+        <div class="podium-name">${p3.photoURL ? `<img class="badge-avatar-img" src="${p3.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}${escapeHtml(p3.playerName)}</div>
         <div class="podium-points">${isDaily ? p3.points : p3.totalPoints} <span style="font-size:0.65rem">P</span></div>
         <div class="podium-sub">${isDaily ? `${p3.guesses} Deneme • ${formatLeaderboardTime(p3.time)}` : `%${p3.winRate} Galibiyet`}</div>
       </div>` : ''}
@@ -333,6 +339,7 @@ export function renderLeaderboard(scores, period) {
           <div class="lb-rank">${rankDisplay}</div>
           <div class="lb-info">
             <div class="lb-name-row">
+              ${s.photoURL ? `<img class="badge-avatar-img" src="${s.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}
               <span class="lb-name">${escapeHtml(s.playerName || 'İsimsiz')}</span>
               ${isCurrent ? '<span class="lb-you-tag">SİZ</span>' : ''}
             </div>
