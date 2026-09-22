@@ -48,6 +48,11 @@ export async function fetchUserDailyScore({ uid, date, dayNumber }) {
         console.warn('Bulunan skor bugünün dayNumber ile eşleşmiyor:', data.dayNumber, 'beklenen:', dayNumber);
         return null;
       }
+      const rawGuesses = Number(data.guesses) || 0;
+      if (data.won && (rawGuesses < 1 || rawGuesses > 6)) {
+        console.warn('Bozuk 0-tahminli bulut skoru yok sayıldı.');
+        return null;
+      }
       return { docId: googleSnap.id, ...data };
     }
 
@@ -78,6 +83,10 @@ export async function submitScore({ playerName, photoURL, date, dayNumber, guess
     }
 
     const cleanGuesses = Number(guesses) || 0;
+    if (won && (cleanGuesses < 1 || cleanGuesses > 6)) {
+      console.warn('Geçersiz tahmin sayısı ile skor kaydedilemez:', cleanGuesses);
+      return null;
+    }
     const cleanTime = Math.round((Number(time) || 0) * 100) / 100;
     const calculatedPoints = calculateGameScore(won, cleanGuesses, cleanTime);
 
@@ -236,18 +245,49 @@ export async function getLeaderboard(period = 'daily') {
       });
     });
 
+    let validScores = scores.filter(s => s.guesses >= 1 && s.guesses <= 6);
+
     if (period === 'daily') {
+      // If no valid score exists yet for today (e.g. right after midnight), show yesterday's daily scores
+      if (validScores.length === 0) {
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = getLocalDateString(yesterday);
+        const yQ = fs.query(
+          fs.collection(db, 'scores'),
+          fs.where('date', '==', yesterdayStr),
+          fs.limit(100)
+        );
+        const ySnap = await fs.getDocs(yQ);
+        ySnap.forEach(doc => {
+          const d = doc.data();
+          const rawGuesses = Number(d.guesses) || 0;
+          const rawTime = Number(d.time) || 0;
+          const points = d.points || calculateGameScore(d.won, rawGuesses, rawTime);
+          if (rawGuesses >= 1 && rawGuesses <= 6) {
+            validScores.push({
+              id: doc.id,
+              ...d,
+              guesses: rawGuesses,
+              time: rawTime,
+              points,
+              isYesterday: true
+            });
+          }
+        });
+      }
+
       // Günlük Analitik Sıralama: En yüksek Puan -> En az deneme -> En kısa süre
-      scores.sort((a, b) => {
+      validScores.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         if (a.guesses > 0 && b.guesses > 0 && a.guesses !== b.guesses) return a.guesses - b.guesses;
         return a.time - b.time;
       });
-      return scores;
+      return validScores;
     }
 
     // Haftalık ve Aylık için kümülatif lig analitiği
-    return aggregateScores(scores);
+    return aggregateScores(validScores);
   } catch (err) {
     console.error('Sıralama yükleme hatası:', err);
     return [];
@@ -258,6 +298,7 @@ function aggregateScores(scores) {
   const playerMap = new Map();
 
   for (const s of scores) {
+    if (s.guesses < 1 || s.guesses > 6) continue;
     const uid = s.uid || s.playerName || 'anon';
     if (!playerMap.has(uid)) {
       playerMap.set(uid, {
@@ -331,10 +372,13 @@ export function renderLeaderboard(scores, period) {
 
   const uid = getUid();
   const isDaily = period === 'daily';
+  const isYesterday = isDaily && scores.some(s => s.isYesterday);
 
   // Bilgi rozeti (Puanlama Kuralı)
   const ruleText = isDaily
-    ? '⚡ <strong>Puan:</strong> Tahmin Başarısı (Maks 600) + Hız Bonusu (Maks 400)'
+    ? (isYesterday
+        ? '📅 <strong>Dünün Şampiyonları</strong> (Bugünkü kelimeyi henüz kimse tamamlamadı - ilk siz olun!)'
+        : '⚡ <strong>Puan:</strong> Tahmin Başarısı (Maks 600) + Hız Bonusu (Maks 400)')
     : '🏆 <strong>Lig:</strong> Toplam Lig Puanı & Galibiyet Yüzdesi esas alınır';
 
   let html = `<div class="leaderboard-rule-badge">${ruleText}</div>`;

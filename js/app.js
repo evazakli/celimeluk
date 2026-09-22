@@ -142,10 +142,54 @@ async function init() {
   if (!isSignedIn()) {
     setTimeout(() => showNameModal(), 500);
   }
+}
 
-  // If game is already completed and user is signed in, ensure score is submitted to Firestore
-  if (game.isGameOver && isSignedIn() && currentMode === 'daily') {
-    submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+// Clean up any previously created corrupted 0-guess scores from Firestore
+async function cleanupCorruptedCloudScore(user) {
+  if (!user || !user.uid) return;
+  try {
+    const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
+    const { getDb } = await import('./firebase-config.js');
+    const db = getDb();
+    if (!db) return;
+
+    const today = getLocalDateString();
+    const docRef = fs.doc(db, 'scores', `${user.uid}_${today}`);
+    const snap = await fs.getDoc(docRef);
+
+    if (snap.exists()) {
+      const data = snap.data();
+      const rawGuesses = Number(data.guesses) || 0;
+      const isCorrupt = rawGuesses < 1 || rawGuesses > 6 || !data.gameState?.guesses?.length;
+      if (isCorrupt) {
+        console.warn('Sunucudaki geçersiz skor kaydı temizleniyor...', docRef.id);
+        await fs.deleteDoc(docRef);
+
+        // Fix player profile
+        const playerRef = fs.doc(db, 'players', user.uid);
+        const playerSnap = await fs.getDoc(playerRef);
+        if (playerSnap.exists()) {
+          const p = playerSnap.data();
+          const badPoints = Number(data.points) || 0;
+          await fs.setDoc(playerRef, {
+            ...p,
+            totalGames: Math.max(0, (p.totalGames || 1) - 1),
+            totalWins: Math.max(0, (p.totalWins || 1) - (data.won ? 1 : 0)),
+            totalPoints: Math.max(0, (p.totalPoints || badPoints) - badPoints),
+            lastPlayedDate: '2026-09-22'
+          });
+        }
+
+        // Clean local state as well
+        localStorage.removeItem(STORAGE_KEY);
+        game = new Game(dayInfo.word);
+        resetBoard();
+        hideDailyCountdownBanner();
+        closeModal('result-modal');
+      }
+    }
+  } catch (err) {
+    console.warn('cleanupCorruptedCloudScore hatası:', err);
   }
 }
 
@@ -154,6 +198,7 @@ async function handleAuthChange(user) {
   if (user) {
     playerName = user.displayName || 'Oyuncu';
     localStorage.setItem(NAME_KEY, playerName);
+    await cleanupCorruptedCloudScore(user);
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);
@@ -457,6 +502,11 @@ function updateResultModalForMode() {
 
 async function submitScoreToFirebase(guessCount, elapsed, won) {
   if (currentMode !== 'daily') return;
+
+  if (won && (!guessCount || guessCount < 1 || guessCount > 6)) {
+    console.error('Geçersiz tahmin sayısı ile skor gönderilemez:', guessCount);
+    return;
+  }
 
   const user = getCurrentUser();
   if (!user) {
