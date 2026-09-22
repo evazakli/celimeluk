@@ -85,6 +85,17 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.header-title:hover {
+  opacity: 0.85;
+  transform: scale(1.02);
+}
+.header-title:active {
+  transform: scale(0.97);
 }
 
 .icon-btn {
@@ -990,4 +1001,44 @@ body {
 }
 .auth-btn * {
   pointer-events: none;
+}
+
+/* --- Fuzûlî Quote Modal --- */
+.quote-modal-content {
+  max-width: 360px;
+  background: linear-gradient(135deg, #FFFDF9 0%, #FAF6F0 100%);
+  border: 1px solid rgba(155, 114, 207, 0.25);
+  box-shadow: 0 12px 36px rgba(123, 94, 167, 0.18);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.quote-modal-body {
+  padding: 4px 20px 24px;
+}
+.quote-ornament {
+  font-size: 1.8rem;
+  margin-bottom: 10px;
+  opacity: 0.9;
+}
+.fuzuli-quote {
+  margin: 0 0 14px;
+  padding: 0;
+  font-style: italic;
+  font-size: 1.12rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.quote-line {
+  margin: 4px 0;
+}
+.quote-author {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }

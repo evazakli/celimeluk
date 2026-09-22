@@ -675,7 +675,19 @@ function setupButtons() {
     document.querySelector('.tab-btn[data-period="daily"]')?.classList.add('active');
   };
 
-  document.getElementById('btn-leaderboard')?.addEventListener('click', openLeaderboardWithData);
+  // Logo / Title click -> Fuzûlî Quote Modal
+  const logoBtn = document.getElementById('logo-btn');
+  if (logoBtn) {
+    logoBtn.addEventListener('click', () => {
+      openModal('quote-modal');
+    });
+    logoBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openModal('quote-modal');
+      }
+    });
+  }
 
   // Profile / Auth button in header
   document.getElementById('btn-auth')?.addEventListener('click', (e) => {
