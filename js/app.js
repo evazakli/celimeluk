@@ -17,7 +17,7 @@ import {
 } from './firebase-config.js';
 import {
   submitScore, getLeaderboard, renderLeaderboard, setupLeaderboardTabs,
-  calculateGameScore, fetchUserDailyScore, normalizePlayerName
+  calculateGameScore, fetchUserDailyScore
 } from './leaderboard.js';
 import { getStats, updateStats, renderStats } from './stats.js';
 import { generateShareText, shareResult } from './share.js';
@@ -75,13 +75,14 @@ async function init() {
     }
   }
 
-  // Load name from storage or active auth session
+  // Load Google user session
   const currentUser = getCurrentUser();
-  if (currentUser && !currentUser.isAnonymous) {
-    playerName = currentUser.displayName || playerName || 'Oyuncu';
+  if (currentUser) {
+    playerName = currentUser.displayName || 'Oyuncu';
     localStorage.setItem(NAME_KEY, playerName);
   } else {
-    playerName = localStorage.getItem(NAME_KEY) || '';
+    playerName = '';
+    localStorage.removeItem(NAME_KEY);
   }
 
   // Check for saved local game
@@ -110,9 +111,9 @@ async function init() {
 
   updateModeIndicator();
 
-  // Çapraz Cihaz Kontrolü: Bu hesap veya isimle başka cihazda bugünkü kelime tamamlanmış mı?
-  if (currentMode === 'daily') {
-    const synced = await syncWithCloudTodayGame(getCurrentUser(), playerName, { showToastOnSync: false });
+  // Çapraz Cihaz Kontrolü: Bu Google hesabıyla başka cihazda bugünkü kelime tamamlanmış mı?
+  if (currentMode === 'daily' && isSignedIn()) {
+    const synced = await syncWithCloudTodayGame(getCurrentUser(), { showToastOnSync: false });
     if (synced && game && game.isGameOver) {
       setTimeout(() => {
         const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
@@ -121,32 +122,32 @@ async function init() {
     }
   }
 
-  // Show login/name modal if first time and not signed in and game not already completed
-  if (!playerName && !isSignedIn() && (!game || !game.isGameOver)) {
-    setTimeout(() => showNameModal(), 600);
+  // Google ile giriş yapılmamışsa giriş modalını göster
+  if (!isSignedIn()) {
+    setTimeout(() => showNameModal(), 500);
   }
 
-  // If game is already completed and player name exists, ensure score is submitted to Firestore
-  if (game.isGameOver && playerName && currentMode === 'daily') {
+  // If game is already completed and user is signed in, ensure score is submitted to Firestore
+  if (game.isGameOver && isSignedIn() && currentMode === 'daily') {
     submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
   }
 }
 
 // --- Auth State Handler ---
 async function handleAuthChange(user) {
-  if (user && !user.isAnonymous) {
-    playerName = user.displayName || playerName || 'Oyuncu';
+  if (user) {
+    playerName = user.displayName || 'Oyuncu';
     localStorage.setItem(NAME_KEY, playerName);
   } else {
-    playerName = localStorage.getItem(NAME_KEY) || '';
+    playerName = '';
+    localStorage.removeItem(NAME_KEY);
   }
   updateAuthUI(user);
   updatePlayerBadge();
 
-  // Oturum durumu değiştiğinde (örneğin Google ile giriş yapıldığında veya oturum yenilendiğinde)
-  // Eğer günlük moddaysak ve oyun henüz bitmemişse buluttan bugünkü oyunu ara
-  if (currentMode === 'daily') {
-    await syncWithCloudTodayGame(user, playerName, { showToastOnSync: true });
+  // Oturum durumu değiştiğinde (Google ile giriş yapıldığında) buluttan bugünkü oyunu ara
+  if (currentMode === 'daily' && user) {
+    await syncWithCloudTodayGame(user, { showToastOnSync: true });
   }
 }
 
@@ -160,7 +161,7 @@ function updateAuthUI(user) {
   const profileEmail = document.getElementById('user-profile-email');
   const changeNameBtn = document.getElementById('btn-change-name');
 
-  const isGoogleUser = user && !user.isAnonymous;
+  const isGoogleUser = Boolean(user);
 
   if (isGoogleUser) {
     // Update header icon with Google avatar
@@ -184,7 +185,7 @@ function updateAuthUI(user) {
     if (profileEmail) profileEmail.textContent = user.email || '';
     if (changeNameBtn) changeNameBtn.textContent = 'Hesap';
   } else {
-    // Signed out / Guest
+    // Signed out
     if (headerAuthIcon) {
       headerAuthIcon.innerHTML = `
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -195,7 +196,7 @@ function updateAuthUI(user) {
 
     if (signedOutView) signedOutView.style.display = 'block';
     if (signedInView) signedInView.style.display = 'none';
-    if (modalTitle) modalTitle.textContent = 'Oyuncu Hesabı 👋';
+    if (modalTitle) modalTitle.textContent = 'Google ile Giriş Yap 👋';
     if (changeNameBtn) changeNameBtn.textContent = 'Giriş Yap';
   }
 }
@@ -251,7 +252,9 @@ async function loadDailyGame() {
   }
 
   // Çapraz cihaz kontrolü
-  await syncWithCloudTodayGame(getCurrentUser(), playerName, { showToastOnSync: false });
+  if (isSignedIn()) {
+    await syncWithCloudTodayGame(getCurrentUser(), { showToastOnSync: false });
+  }
 }
 
 function startPracticeGame() {
@@ -283,6 +286,12 @@ function updateModeIndicator() {
 
 // --- Key Press Handler ---
 function handleKeyPress(key) {
+  if (!isSignedIn()) {
+    showNameModal();
+    showToast('Oyunu oynamak için lütfen Google ile giriş yapın! 👤', 3000);
+    return;
+  }
+
   if (game.isGameOver) return;
 
   if (key === 'Enter') {
@@ -420,16 +429,14 @@ async function submitScoreToFirebase(guessCount, elapsed, won) {
   if (currentMode !== 'daily') return;
 
   const user = getCurrentUser();
-  const photo = getPhotoURL();
-
-  if (!playerName) {
-    playerName = user?.displayName || localStorage.getItem(NAME_KEY) || '';
-  }
-  if (!playerName) {
-    console.warn('Oyuncu ismi bulunamadı, isim modalı açılıyor.');
+  if (!user) {
     showNameModal();
+    showToast('Skorunuzu kaydetmek için lütfen Google ile giriş yapın!', 4000);
     return;
   }
+
+  const photo = getPhotoURL();
+  playerName = user.displayName || 'Google Oyuncusu';
 
   console.log('Skor gönderiliyor:', { playerName, photo, guessCount, elapsed, won });
   await submitScore({
@@ -482,22 +489,20 @@ function hideDailyCountdownBanner() {
 // --- Cross-Device Daily Game Cloud Sync ---
 let isSyncingCloud = false;
 
-async function syncWithCloudTodayGame(user, name, options = { showToastOnSync: false }) {
+async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }) {
   if (isSyncingCloud) return false;
   if (currentMode !== 'daily') return false;
   if (!dayInfo) dayInfo = getWordOfDay();
 
   const today = new Date().toISOString().split('T')[0];
-  const uid = user && !user.isAnonymous ? user.uid : null;
-  const targetName = name || playerName || (user ? user.displayName : '');
+  const uid = user ? user.uid : getUid();
 
-  if (!uid && !targetName) return false;
+  if (!uid) return false;
 
   isSyncingCloud = true;
   try {
     const cloudScore = await fetchUserDailyScore({
       uid,
-      playerName: targetName,
       date: today
     });
 
@@ -593,12 +598,7 @@ function restoreGameUI() {
 // --- Name / Auth Modal ---
 function showNameModal() {
   updateAuthUI(getCurrentUser());
-  const input = document.getElementById('player-name-input');
-  if (input) input.value = playerName || '';
   openModal('name-modal');
-  if (!isSignedIn()) {
-    setTimeout(() => input?.focus(), 150);
-  }
 }
 
 // --- Button Setup ---
@@ -661,7 +661,7 @@ function setupButtons() {
         closeModal('name-modal');
 
         // Check if this Google account already completed today's game on another device
-        const synced = await syncWithCloudTodayGame(user, playerName, { showToastOnSync: false });
+        const synced = await syncWithCloudTodayGame(user, { showToastOnSync: false });
         if (synced) {
           showToast(`Hoş geldin, ${playerName}! Bugünkü oyununuz senkronize edildi. 👋`, 4000);
           setTimeout(() => {
@@ -671,10 +671,6 @@ function setupButtons() {
           }, 350);
         } else {
           showToast(`Hoş geldin, ${playerName}! 👋`);
-          // If today's local game was ALREADY completed as guest before logging in, transfer it to Google account
-          if (game && game.isGameOver && currentMode === 'daily') {
-            await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
-          }
         }
       }
     } catch (err) {
@@ -700,48 +696,18 @@ function setupButtons() {
     await signOutUser();
     playerName = '';
     localStorage.removeItem(NAME_KEY);
+    localStorage.removeItem(STORAGE_KEY);
     showToast('Çıkış yapıldı.');
     updateAuthUI(null);
     updatePlayerBadge();
+    closeModal('name-modal');
+    loadDailyGame();
+    setTimeout(() => showNameModal(), 350);
   });
 
   // Continue button in profile view
   document.getElementById('btn-profile-continue')?.addEventListener('click', () => {
     closeModal('name-modal');
-  });
-
-  // Guest / Name form submit
-  document.getElementById('name-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const input = document.getElementById('player-name-input');
-    const name = input?.value.trim();
-    if (name) {
-      playerName = name;
-      localStorage.setItem(NAME_KEY, name);
-      updatePlayerBadge();
-      closeModal('name-modal');
-
-      // Check if this name already completed today's game on any device
-      const synced = await syncWithCloudTodayGame(getCurrentUser(), name, { showToastOnSync: false });
-      if (synced) {
-        showToast(`"${name}" adına bugünkü oyun daha önce tamamlanmış. Sonucunuz yüklendi! 🎯`, 4000);
-        setTimeout(() => {
-          const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
-          showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
-          updateResultModalForMode();
-        }, 350);
-      } else {
-        showToast(`Hoş geldin, ${name}!`);
-        if (game && game.isGameOver && currentMode === 'daily') {
-          await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
-          const modal = document.getElementById('leaderboard-modal');
-          if (modal && modal.open) {
-            const scores = await getLeaderboard('daily');
-            renderLeaderboard(scores, 'daily');
-          }
-        }
-      }
-    }
   });
 
   // Share
@@ -788,7 +754,7 @@ function updatePlayerBadge() {
   const photo = getPhotoURL();
 
   if (badgeName) {
-    badgeName.textContent = playerName || 'İsimsiz Oyuncu';
+    badgeName.textContent = isSignedIn() ? (playerName || 'Google Oyuncusu') : 'Giriş Yapılmadı';
   }
 
   if (badgeAvatar) {

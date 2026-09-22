@@ -2,7 +2,7 @@
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
 import {
-  getAuth, signInAnonymously, onAuthStateChanged,
+  getAuth, onAuthStateChanged,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut
 } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
@@ -86,22 +86,6 @@ export function initFirebase() {
   return initPromise;
 }
 
-// Guest Sign-In (fallback for players who skip Google)
-export async function signInAsGuest() {
-  if (!auth) await initFirebase();
-  try {
-    const cred = await signInAnonymously(auth);
-    currentUser = cred.user;
-    firebaseReady = true;
-    notifyAuthListeners();
-    console.log('Misafir girişi yapıldı:', currentUser.uid);
-    return currentUser;
-  } catch (err) {
-    console.warn('Misafir giriş hatası:', err);
-    return null;
-  }
-}
-
 // Google Sign-In
 export async function signInWithGoogle() {
   if (!auth) await initFirebase();
@@ -156,12 +140,9 @@ function notifyAuthListeners() {
 
 export async function ensureFirebaseReady() {
   if (!isFirebaseConfigured()) return false;
-  if (firebaseReady && currentUser) return true;
+  if (firebaseReady) return true;
   await initFirebase();
-  if (!currentUser) {
-    await signInAsGuest();
-  }
-  return firebaseReady && currentUser !== null;
+  return firebaseReady;
 }
 
 export function getDb() { return db; }
@@ -169,6 +150,6 @@ export function getUid() { return currentUser?.uid || null; }
 export function getEmail() { return currentUser?.email || null; }
 export function getDisplayName() { return currentUser?.displayName || null; }
 export function getPhotoURL() { return currentUser?.photoURL || null; }
-export function isSignedIn() { return currentUser !== null && !currentUser.isAnonymous; }
+export function isSignedIn() { return currentUser !== null; }
 export function isReady() { return firebaseReady && currentUser !== null; }
 export function getCurrentUser() { return currentUser; }
