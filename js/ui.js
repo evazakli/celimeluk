@@ -261,27 +261,40 @@ export function showResultModal(won, guessCount, elapsedSeconds, targetWord, sco
   `;
 
   openModal('result-modal');
-  startCountdown();
+  startNextWordCountdown();
 }
 
-function startCountdown() {
-  const el = document.getElementById('countdown');
-  if (!el) return;
+let countdownInterval = null;
 
-  function update() {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
+export function updateNextWordCountdown() {
+  const modalEl = document.getElementById('countdown');
+  const mainEl = document.getElementById('main-countdown');
 
-    const diff = tomorrow - now;
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
 
-    el.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  const diff = tomorrow - now;
+  if (diff <= 0) {
+    if (modalEl) modalEl.textContent = 'Yeni kelime hazır! Sayfayı yenileyin 🔄';
+    if (mainEl) mainEl.textContent = 'Yeni kelime hazır! 🔄';
+    return;
   }
 
-  update();
-  setInterval(update, 1000);
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  const text = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+  if (modalEl) modalEl.textContent = text;
+  if (mainEl) mainEl.textContent = text;
 }
+
+export function startNextWordCountdown() {
+  updateNextWordCountdown();
+  if (!countdownInterval) {
+    countdownInterval = setInterval(updateNextWordCountdown, 1000);
+  }
+}
+

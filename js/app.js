@@ -7,7 +7,8 @@ import { createKeyboard, updateKeyboardColors, setupPhysicalKeyboard } from './k
 import {
   createBoard, setTileLetter, clearTileLetter, revealRow, restoreRow,
   shakeRow, bounceRow, showToast, formatTime, showConfetti,
-  openModal, closeModal, setupModalCloseButtons, showResultModal
+  openModal, closeModal, setupModalCloseButtons, showResultModal,
+  startNextWordCountdown
 } from './ui.js';
 import {
   initFirebase, isFirebaseConfigured, isReady as isFirebaseReady, getUid,
@@ -76,17 +77,19 @@ async function init() {
 
     if (game.isGameOver) {
       updateKeyboardColors(keyboardEl, game.letterStatuses);
-      timerEl.textContent = formatTime(game.getElapsedSeconds());
+      showDailyCountdownBanner();
       setTimeout(() => {
         const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
         showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
       }, 500);
     } else {
+      hideDailyCountdownBanner();
       startTimer();
     }
   } else {
     // New daily game
     game = new Game(dayInfo.word);
+    hideDailyCountdownBanner();
   }
 
   updateModeIndicator();
@@ -203,17 +206,20 @@ function loadDailyGame() {
     restoreGameUI();
     if (game.isGameOver) {
       updateKeyboardColors(keyboardEl, game.letterStatuses);
-      timerEl.textContent = formatTime(game.getElapsedSeconds());
+      showDailyCountdownBanner();
     } else {
+      hideDailyCountdownBanner();
       startTimer();
     }
   } else {
     game = new Game(dayInfo.word);
+    hideDailyCountdownBanner();
     timerEl.textContent = '00:00.0';
   }
 }
 
 function startPracticeGame() {
+  hideDailyCountdownBanner();
   const word = getRandomWord();
   resetBoard();
   game = new Game(word);
@@ -310,6 +316,7 @@ function onGameWon(guessCount) {
   const score = calculateGameScore(true, guessCount, elapsed);
 
   if (currentMode === 'daily') {
+    showDailyCountdownBanner();
     const stats = updateStats(true, guessCount, elapsed);
 
     setTimeout(() => {
@@ -335,6 +342,7 @@ function onGameLost(targetWord) {
   showToast(targetWord.toLocaleUpperCase('tr-TR'), 3000);
 
   if (currentMode === 'daily') {
+    showDailyCountdownBanner();
     const stats = updateStats(false, 0, elapsed);
 
     setTimeout(() => {
@@ -416,6 +424,22 @@ function stopTimer() {
   if (game) {
     timerEl.textContent = formatTime(game.getElapsedSeconds());
   }
+}
+
+// --- Daily Countdown Banner Helpers ---
+function showDailyCountdownBanner() {
+  const banner = document.getElementById('daily-countdown-banner');
+  const timer = document.getElementById('timer');
+  if (banner) banner.style.display = 'flex';
+  if (timer) timer.style.display = 'none';
+  startNextWordCountdown();
+}
+
+function hideDailyCountdownBanner() {
+  const banner = document.getElementById('daily-countdown-banner');
+  const timer = document.getElementById('timer');
+  if (banner) banner.style.display = 'none';
+  if (timer) timer.style.display = 'block';
 }
 
 // --- Game State Persistence (Daily only) ---
@@ -597,6 +621,21 @@ function setupButtons() {
   document.getElementById('btn-new-practice')?.addEventListener('click', () => {
     closeModal('result-modal');
     startPracticeGame();
+  });
+
+  // Go to practice from countdown banner
+  document.getElementById('btn-goto-practice')?.addEventListener('click', () => {
+    const practiceBtn = document.querySelector('.mode-btn[data-mode="practice"]');
+    practiceBtn?.click();
+  });
+
+  // Reopen result modal from countdown banner
+  document.getElementById('btn-reopen-result')?.addEventListener('click', () => {
+    if (game && game.isGameOver) {
+      const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
+      showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
+      updateResultModalForMode();
+    }
   });
 }
 

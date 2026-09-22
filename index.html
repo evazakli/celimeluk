@@ -47,6 +47,17 @@
       </div>
       <div id="mode-indicator" class="mode-indicator"></div>
       <div id="timer" class="timer">00:00.0</div>
+
+      <!-- Günlük Oyun Bitince Gösterilen Geri Sayım Kartı -->
+      <div id="daily-countdown-banner" class="daily-countdown-banner" style="display: none;">
+        <div class="dcb-title">⏳ Sonraki Günlük Kelimeye Kalan Süre</div>
+        <div id="main-countdown" class="dcb-timer">00:00:00</div>
+        <div class="dcb-actions">
+          <button id="btn-goto-practice" class="dcb-btn" type="button">🎯 Sınırsız Alıştırma Oyna</button>
+          <button id="btn-reopen-result" class="dcb-btn secondary" type="button">📊 Sonucumu Gör</button>
+        </div>
+      </div>
+
       <div id="toast-container" class="toast-container"></div>
       <div id="game-board" class="game-board"></div>
     </main>

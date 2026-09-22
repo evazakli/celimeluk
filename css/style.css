@@ -173,6 +173,74 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* --- Daily Countdown Banner --- */
+.daily-countdown-banner {
+  background: linear-gradient(135deg, rgba(155, 114, 207, 0.09), rgba(69, 183, 209, 0.09));
+  border: 1px solid rgba(155, 114, 207, 0.28);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  margin-bottom: 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  max-width: 330px;
+  animation: modalCenterIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 8px rgba(155, 114, 207, 0.08);
+}
+
+.dcb-title {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.dcb-timer {
+  font-size: 1.32rem;
+  font-weight: 800;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+}
+
+.dcb-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.dcb-btn {
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-family: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--color-accent);
+  color: #fff;
+  transition: var(--transition);
+  -webkit-tap-highlight-color: transparent;
+}
+.dcb-btn:hover {
+  background: #8B62BF;
+  transform: translateY(-1px);
+}
+.dcb-btn:active {
+  transform: scale(0.96);
+}
+.dcb-btn.secondary {
+  background: var(--key-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--tile-border);
+}
+.dcb-btn.secondary:hover {
+  background: var(--key-bg-hover);
+}
+
 /* --- Toast --- */
 .toast-container {
   position: absolute;
