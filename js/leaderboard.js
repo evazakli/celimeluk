@@ -1,5 +1,5 @@
 // Çelimeluk - Leaderboard Module with Analytical Ranking
-import { getDb, getUid, ensureFirebaseReady } from './firebase-config.js';
+import { getDb, getUid, getEmail, isSignedIn, ensureFirebaseReady } from './firebase-config.js';
 
 let firestoreModules = null;
 
@@ -7,6 +7,10 @@ async function getFirestoreModules() {
   if (firestoreModules) return firestoreModules;
   firestoreModules = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
   return firestoreModules;
+}
+
+export function normalizePlayerName(name) {
+  return (name || '').trim().toLocaleLowerCase('tr-TR');
 }
 
 /**
@@ -26,8 +30,43 @@ export function calculateGameScore(won, guesses, time) {
   return baseGuessScore + timeBonus;
 }
 
-// Submit a score after game completion
-export async function submitScore({ playerName, photoURL, date, dayNumber, guesses, time, won }) {
+// Check if user already completed today's game on any device
+export async function fetchUserDailyScore({ uid, playerName, date }) {
+  const ready = await ensureFirebaseReady();
+  if (!ready) return null;
+
+  try {
+    const fs = await getFirestoreModules();
+    const db = getDb();
+
+    // 1. Google oturumu varsa UID ile kontrol et
+    if (uid && isSignedIn()) {
+      const googleDocRef = fs.doc(db, 'scores', `${uid}_${date}`);
+      const googleSnap = await fs.getDoc(googleDocRef);
+      if (googleSnap.exists()) {
+        return { docId: googleSnap.id, ...googleSnap.data() };
+      }
+    }
+
+    // 2. İsim ile kontrol et (misafir oyuncu veya Google hesabı adı ile)
+    const normName = normalizePlayerName(playerName);
+    if (normName) {
+      const guestDocRef = fs.doc(db, 'scores', `guest_${encodeURIComponent(normName)}_${date}`);
+      const guestSnap = await fs.getDoc(guestDocRef);
+      if (guestSnap.exists()) {
+        return { docId: guestSnap.id, ...guestSnap.data() };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('fetchUserDailyScore hatası:', err);
+    return null;
+  }
+}
+
+// Submit a score after game completion (idempotent, prevents duplicate submissions)
+export async function submitScore({ playerName, photoURL, date, dayNumber, guesses, time, won, gameState }) {
   const ready = await ensureFirebaseReady();
   if (!ready) {
     console.warn('Firebase hazır olmadığı için skor kaydedilemedi.');
@@ -38,17 +77,53 @@ export async function submitScore({ playerName, photoURL, date, dayNumber, guess
     const fs = await getFirestoreModules();
     const db = getDb();
     const uid = getUid();
+    const userIsSignedIn = isSignedIn();
+    const userEmail = getEmail();
+    const normName = normalizePlayerName(playerName);
 
     const cleanGuesses = Number(guesses) || 0;
     const cleanTime = Math.round((Number(time) || 0) * 100) / 100;
     const calculatedPoints = calculateGameScore(won, cleanGuesses, cleanTime);
 
-    const docId = `${uid}_${date}`;
+    const docId = userIsSignedIn && uid
+      ? `${uid}_${date}`
+      : (normName ? `guest_${encodeURIComponent(normName)}_${date}` : null);
+
+    if (!docId) {
+      console.warn('Kullanıcı kimliği veya geçerli isim bulunamadı, skor kaydedilmedi.');
+      return null;
+    }
+
     const docRef = fs.doc(db, 'scores', docId);
 
+    // KONTROL 1: Çapraz cihaz koruması - bu kullanıcının bugünkü skoru zaten var mı?
+    const existingSnap = await fs.getDoc(docRef);
+    if (existingSnap.exists()) {
+      console.log('Bugünkü skor zaten kaydedilmiş. Çapraz cihaz koruması devrede, mükerrer kayıt engellendi:', docId);
+      return { status: 'already_exists', docId, data: existingSnap.data() };
+    }
+
+    // KONTROL 2: Google kullanıcısı giriş yapmadan önce aynı cihazda misafir olarak oynamış mı?
+    // Eğer misafir kaydı varsa onu temizleyelim (çift sıralama görünmesin)
+    if (userIsSignedIn && normName) {
+      try {
+        const guestDocRef = fs.doc(db, 'scores', `guest_${encodeURIComponent(normName)}_${date}`);
+        const guestSnap = await fs.getDoc(guestDocRef);
+        if (guestSnap.exists()) {
+          await fs.deleteDoc(guestDocRef);
+          console.log('Önceki misafir skor dokümanı Google hesabına aktarıldı, eski kayıt silindi:', guestDocRef.id);
+        }
+      } catch (cleanErr) {
+        console.warn('Misafir skor temizliği uyarısı:', cleanErr);
+      }
+    }
+
     const scoreData = {
-      uid,
+      uid: userIsSignedIn && uid ? uid : `guest_${encodeURIComponent(normName)}`,
+      authProvider: userIsSignedIn ? 'google' : 'guest',
+      email: userEmail || '',
       playerName: playerName || 'İsimsiz Oyuncu',
+      normalizedName: normName,
       photoURL: photoURL || '',
       date,
       dayNumber,
@@ -56,30 +131,31 @@ export async function submitScore({ playerName, photoURL, date, dayNumber, guess
       time: cleanTime,
       won: Boolean(won),
       points: calculatedPoints,
+      gameState: gameState || null,
       timestamp: fs.serverTimestamp()
     };
 
     await fs.setDoc(docRef, scoreData);
     console.log('Skor Firestore’a başarıyla kaydedildi:', docId, scoreData);
 
-    await updatePlayerProfile(playerName, photoURL, won, cleanGuesses, calculatedPoints);
+    const profileId = userIsSignedIn && uid ? uid : `guest_${encodeURIComponent(normName)}`;
+    await updatePlayerProfile(profileId, playerName, photoURL, won, cleanGuesses, calculatedPoints);
 
-    return docId;
+    return { status: 'saved', docId, data: scoreData };
   } catch (err) {
     console.error('Skor kaydetme hatası (Firestore):', err);
     return null;
   }
 }
 
-async function updatePlayerProfile(playerName, photoURL, won, guesses, points) {
+async function updatePlayerProfile(profileId, playerName, photoURL, won, guesses, points) {
   const ready = await ensureFirebaseReady();
-  if (!ready) return;
+  if (!ready || !profileId) return;
 
   try {
     const fs = await getFirestoreModules();
     const db = getDb();
-    const uid = getUid();
-    const playerRef = fs.doc(db, 'players', uid);
+    const playerRef = fs.doc(db, 'players', profileId);
     const playerSnap = await fs.getDoc(playerRef);
 
     const today = new Date().toISOString().split('T')[0];
@@ -321,10 +397,11 @@ export function renderLeaderboard(scores, period) {
   }
 
   // --- ANALİTİK KART LİSTESİ ---
-  html += `<div class="leaderboard-list">`;
+  const currentName = localStorage.getItem('celimeluk_player_name') || '';
+  const currentNormName = normalizePlayerName(currentName);
 
   scores.forEach((s, i) => {
-    const isCurrent = s.uid === uid;
+    const isCurrent = (uid && s.uid === uid) || (currentNormName && s.normalizedName && s.normalizedName === currentNormName);
     const rowClass = isCurrent ? ' lb-card is-current' : ' lb-card';
     const rankIcons = ['🥇', '🥈', '🥉'];
     const rankDisplay = i < 3 ? rankIcons[i] : `#${i + 1}`;

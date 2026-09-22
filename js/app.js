@@ -15,7 +15,10 @@ import {
   signInWithGoogle, signOutUser, onAuthChange, isSignedIn, getCurrentUser,
   getDisplayName, getPhotoURL, ensureFirebaseReady
 } from './firebase-config.js';
-import { submitScore, getLeaderboard, renderLeaderboard, setupLeaderboardTabs, calculateGameScore } from './leaderboard.js';
+import {
+  submitScore, getLeaderboard, renderLeaderboard, setupLeaderboardTabs,
+  calculateGameScore, fetchUserDailyScore, normalizePlayerName
+} from './leaderboard.js';
 import { getStats, updateStats, renderStats } from './stats.js';
 import { generateShareText, shareResult } from './share.js';
 
@@ -56,19 +59,32 @@ async function init() {
   });
 
   // Listen to Firebase Auth state
-  onAuthChange((user) => {
-    handleAuthChange(user);
+  onAuthChange(async (user) => {
+    await handleAuthChange(user);
   });
 
-  // Initialize Firebase
+  // Initialize Firebase (with safety timeout for offline users)
   if (isFirebaseConfigured()) {
-    initFirebase().catch(err => console.warn('Firebase init failed:', err));
+    try {
+      await Promise.race([
+        initFirebase(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase timeout')), 1800))
+      ]);
+    } catch (err) {
+      console.warn('Firebase init wait:', err.message);
+    }
   }
 
-  // Load name from storage
-  playerName = localStorage.getItem(NAME_KEY) || '';
+  // Load name from storage or active auth session
+  const currentUser = getCurrentUser();
+  if (currentUser && !currentUser.isAnonymous) {
+    playerName = currentUser.displayName || playerName || 'Oyuncu';
+    localStorage.setItem(NAME_KEY, playerName);
+  } else {
+    playerName = localStorage.getItem(NAME_KEY) || '';
+  }
 
-  // Check for saved game
+  // Check for saved local game
   const savedGame = loadGameState();
   if (savedGame && savedGame.targetWord === dayInfo.word) {
     // Restore existing daily game
@@ -94,8 +110,19 @@ async function init() {
 
   updateModeIndicator();
 
-  // Show login/name modal if first time and not signed in
-  if (!playerName && !isSignedIn()) {
+  // Çapraz Cihaz Kontrolü: Bu hesap veya isimle başka cihazda bugünkü kelime tamamlanmış mı?
+  if (currentMode === 'daily') {
+    const synced = await syncWithCloudTodayGame(getCurrentUser(), playerName, { showToastOnSync: false });
+    if (synced && game && game.isGameOver) {
+      setTimeout(() => {
+        const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
+        showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
+      }, 500);
+    }
+  }
+
+  // Show login/name modal if first time and not signed in and game not already completed
+  if (!playerName && !isSignedIn() && (!game || !game.isGameOver)) {
     setTimeout(() => showNameModal(), 600);
   }
 
@@ -106,7 +133,7 @@ async function init() {
 }
 
 // --- Auth State Handler ---
-function handleAuthChange(user) {
+async function handleAuthChange(user) {
   if (user && !user.isAnonymous) {
     playerName = user.displayName || playerName || 'Oyuncu';
     localStorage.setItem(NAME_KEY, playerName);
@@ -115,6 +142,12 @@ function handleAuthChange(user) {
   }
   updateAuthUI(user);
   updatePlayerBadge();
+
+  // Oturum durumu değiştiğinde (örneğin Google ile giriş yapıldığında veya oturum yenilendiğinde)
+  // Eğer günlük moddaysak ve oyun henüz bitmemişse buluttan bugünkü oyunu ara
+  if (currentMode === 'daily') {
+    await syncWithCloudTodayGame(user, playerName, { showToastOnSync: true });
+  }
 }
 
 function updateAuthUI(user) {
@@ -196,7 +229,7 @@ function switchMode(mode) {
   updateModeIndicator();
 }
 
-function loadDailyGame() {
+async function loadDailyGame() {
   dayInfo = getWordOfDay();
   resetBoard();
 
@@ -216,6 +249,9 @@ function loadDailyGame() {
     hideDailyCountdownBanner();
     timerEl.textContent = '00:00.0';
   }
+
+  // Çapraz cihaz kontrolü
+  await syncWithCloudTodayGame(getCurrentUser(), playerName, { showToastOnSync: false });
 }
 
 function startPracticeGame() {
@@ -404,6 +440,7 @@ async function submitScoreToFirebase(guessCount, elapsed, won) {
     guesses: guessCount,
     time: elapsed,
     won,
+    gameState: game ? game.serialize() : null
   });
 }
 
@@ -440,6 +477,90 @@ function hideDailyCountdownBanner() {
   const timer = document.getElementById('timer');
   if (banner) banner.style.display = 'none';
   if (timer) timer.style.display = 'block';
+}
+
+// --- Cross-Device Daily Game Cloud Sync ---
+let isSyncingCloud = false;
+
+async function syncWithCloudTodayGame(user, name, options = { showToastOnSync: false }) {
+  if (isSyncingCloud) return false;
+  if (currentMode !== 'daily') return false;
+  if (!dayInfo) dayInfo = getWordOfDay();
+
+  const today = new Date().toISOString().split('T')[0];
+  const uid = user && !user.isAnonymous ? user.uid : null;
+  const targetName = name || playerName || (user ? user.displayName : '');
+
+  if (!uid && !targetName) return false;
+
+  isSyncingCloud = true;
+  try {
+    const cloudScore = await fetchUserDailyScore({
+      uid,
+      playerName: targetName,
+      date: today
+    });
+
+    if (!cloudScore) return false;
+
+    console.log('Buluttan bugünkü oyun bulundu ve senkronize ediliyor:', cloudScore);
+
+    // Reconstruct game
+    let restoredGame = null;
+    if (cloudScore.gameState && cloudScore.gameState.targetWord === dayInfo.word) {
+      restoredGame = Game.deserialize(cloudScore.gameState);
+    } else {
+      restoredGame = new Game(dayInfo.word);
+      restoredGame.won = Boolean(cloudScore.won);
+      restoredGame.lost = !cloudScore.won;
+      restoredGame.startTime = Date.now() - (cloudScore.time || 60) * 1000;
+      restoredGame.endTime = Date.now();
+    }
+
+    // Check if local game is already this exact completed game
+    const isLocalAlreadySame = game &&
+      game.isGameOver &&
+      game.targetWord === restoredGame.targetWord &&
+      game.guesses.length === restoredGame.guesses.length &&
+      game.won === restoredGame.won;
+
+    if (isLocalAlreadySame) {
+      showDailyCountdownBanner();
+      return true;
+    }
+
+    // Replace local game instance with the cloud game
+    game = restoredGame;
+    saveGameState();
+
+    // Update local stats once if not already recorded today
+    try {
+      const stats = getStats();
+      if (stats.lastPlayedDate !== today) {
+        updateStats(game.won, game.guesses.length, game.getElapsedSeconds());
+      }
+    } catch (e) {
+      console.warn('Yerel istatistik senkronizasyon uyarısı:', e);
+    }
+
+    // Update UI
+    stopTimer();
+    resetBoard();
+    restoreGameUI();
+    updateKeyboardColors(keyboardEl, game.letterStatuses);
+    showDailyCountdownBanner();
+
+    if (options.showToastOnSync) {
+      showToast('Bugünkü oyununuz diğer cihazınızdan senkronize edildi! 📱💻', 3500);
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('syncWithCloudTodayGame hatası:', err);
+    return false;
+  } finally {
+    isSyncingCloud = false;
+  }
 }
 
 // --- Game State Persistence (Daily only) ---
@@ -535,14 +656,25 @@ function setupButtons() {
       if (user) {
         playerName = user.displayName || 'Oyuncu';
         localStorage.setItem(NAME_KEY, playerName);
-        showToast(`Hoş geldin, ${playerName}! 👋`);
         updateAuthUI(user);
         updatePlayerBadge();
         closeModal('name-modal');
 
-        // If today's game is completed, submit score with Google identity
-        if (game && game.isGameOver && currentMode === 'daily') {
-          await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+        // Check if this Google account already completed today's game on another device
+        const synced = await syncWithCloudTodayGame(user, playerName, { showToastOnSync: false });
+        if (synced) {
+          showToast(`Hoş geldin, ${playerName}! Bugünkü oyununuz senkronize edildi. 👋`, 4000);
+          setTimeout(() => {
+            const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
+            showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
+            updateResultModalForMode();
+          }, 350);
+        } else {
+          showToast(`Hoş geldin, ${playerName}! 👋`);
+          // If today's local game was ALREADY completed as guest before logging in, transfer it to Google account
+          if (game && game.isGameOver && currentMode === 'daily') {
+            await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+          }
         }
       }
     } catch (err) {
@@ -588,14 +720,25 @@ function setupButtons() {
       localStorage.setItem(NAME_KEY, name);
       updatePlayerBadge();
       closeModal('name-modal');
-      showToast(`Hoş geldin, ${name}!`);
 
-      if (game && game.isGameOver && currentMode === 'daily') {
-        await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
-        const modal = document.getElementById('leaderboard-modal');
-        if (modal && modal.open) {
-          const scores = await getLeaderboard('daily');
-          renderLeaderboard(scores, 'daily');
+      // Check if this name already completed today's game on any device
+      const synced = await syncWithCloudTodayGame(getCurrentUser(), name, { showToastOnSync: false });
+      if (synced) {
+        showToast(`"${name}" adına bugünkü oyun daha önce tamamlanmış. Sonucunuz yüklendi! 🎯`, 4000);
+        setTimeout(() => {
+          const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
+          showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
+          updateResultModalForMode();
+        }, 350);
+      } else {
+        showToast(`Hoş geldin, ${name}!`);
+        if (game && game.isGameOver && currentMode === 'daily') {
+          await submitScoreToFirebase(game.won ? game.guesses.length : 0, game.getElapsedSeconds(), game.won);
+          const modal = document.getElementById('leaderboard-modal');
+          if (modal && modal.open) {
+            const scores = await getLeaderboard('daily');
+            renderLeaderboard(scores, 'daily');
+          }
         }
       }
     }

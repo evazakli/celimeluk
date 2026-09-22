@@ -166,6 +166,7 @@ export async function ensureFirebaseReady() {
 
 export function getDb() { return db; }
 export function getUid() { return currentUser?.uid || null; }
+export function getEmail() { return currentUser?.email || null; }
 export function getDisplayName() { return currentUser?.displayName || null; }
 export function getPhotoURL() { return currentUser?.photoURL || null; }
 export function isSignedIn() { return currentUser !== null && !currentUser.isAnonymous; }
