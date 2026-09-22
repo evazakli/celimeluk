@@ -512,24 +512,39 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
 
     // Reconstruct game
     let restoredGame = null;
-    if (cloudScore.gameState && cloudScore.gameState.targetWord === dayInfo.word) {
+    if (cloudScore.gameState && cloudScore.gameState.targetWord === dayInfo.word && cloudScore.gameState.guesses?.length > 0) {
       restoredGame = Game.deserialize(cloudScore.gameState);
+    } else if (game && game.targetWord === dayInfo.word && game.guesses?.length > 0) {
+      // PRESERVE local game guesses!
+      restoredGame = game;
+      restoredGame.won = Boolean(cloudScore.won);
+      restoredGame.lost = !cloudScore.won;
     } else {
       restoredGame = new Game(dayInfo.word);
       restoredGame.won = Boolean(cloudScore.won);
       restoredGame.lost = !cloudScore.won;
       restoredGame.startTime = Date.now() - (cloudScore.time || 60) * 1000;
       restoredGame.endTime = Date.now();
+
+      // Ensure guesses array is not empty so board is NEVER empty while waiting!
+      const targetLetters = dayInfo.word.split('').map(char => ({
+        letter: char,
+        status: restoredGame.won ? 'correct' : 'absent'
+      }));
+      restoredGame.guesses = [{ word: dayInfo.word, letters: targetLetters }];
     }
 
-    // Check if local game is already this exact completed game
+    // Check if local game is already this exact completed game with guesses
     const isLocalAlreadySame = game &&
       game.isGameOver &&
       game.targetWord === restoredGame.targetWord &&
-      game.guesses.length === restoredGame.guesses.length &&
-      game.won === restoredGame.won;
+      game.guesses?.length === restoredGame.guesses?.length &&
+      game.won === restoredGame.won &&
+      (game.guesses?.length || 0) > 0;
 
     if (isLocalAlreadySame) {
+      restoreGameUI();
+      updateKeyboardColors(keyboardEl, game.letterStatuses);
       showDailyCountdownBanner();
       return true;
     }
@@ -555,6 +570,11 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
     updateKeyboardColors(keyboardEl, game.letterStatuses);
     showDailyCountdownBanner();
 
+    // If cloud was missing gameState, patch it now
+    if (!cloudScore.gameState || !cloudScore.gameState.guesses?.length) {
+      patchCloudScoreGameState(uid, today, game.serialize()).catch(() => {});
+    }
+
     if (options.showToastOnSync) {
       showToast('Bugünkü oyununuz diğer cihazınızdan senkronize edildi! 📱💻', 3500);
     }
@@ -565,6 +585,19 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
     return false;
   } finally {
     isSyncingCloud = false;
+  }
+}
+
+async function patchCloudScoreGameState(uid, date, gameState) {
+  try {
+    const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
+    const { getDb } = await import('./firebase-config.js');
+    const db = getDb();
+    if (!db || !uid) return;
+    const docRef = fs.doc(db, 'scores', `${uid}_${date}`);
+    await fs.updateDoc(docRef, { gameState });
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -590,8 +623,23 @@ function loadGameState() {
 
 // Restore the UI from a saved game state
 function restoreGameUI() {
-  for (let r = 0; r < game.guesses.length; r++) {
-    restoreRow(boardEl, r, game.guesses[r].letters);
+  if (!game) return;
+
+  if (game.guesses && game.guesses.length > 0) {
+    for (let r = 0; r < game.guesses.length; r++) {
+      if (game.guesses[r] && game.guesses[r].letters) {
+        restoreRow(boardEl, r, game.guesses[r].letters);
+      }
+    }
+  } else if (game.isGameOver && game.targetWord) {
+    // If completed game had empty guesses, reconstruct the target word row
+    const targetLetters = game.targetWord.split('').map(char => ({
+      letter: char,
+      status: game.won ? 'correct' : 'absent'
+    }));
+    restoreRow(boardEl, 0, targetLetters);
+    game.guesses = [{ word: game.targetWord, letters: targetLetters }];
+    saveGameState();
   }
 }
 
