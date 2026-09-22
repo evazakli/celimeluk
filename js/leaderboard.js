@@ -1,5 +1,6 @@
 // Çelimeluk - Leaderboard Module with Analytical Ranking
 import { getDb, getUid, getEmail, isSignedIn, ensureFirebaseReady } from './firebase-config.js';
+import { getLocalDateString } from './date-utils.js';
 
 let firestoreModules = null;
 
@@ -31,7 +32,7 @@ export function calculateGameScore(won, guesses, time) {
 }
 
 // Check if user already completed today's game on any device
-export async function fetchUserDailyScore({ uid, date }) {
+export async function fetchUserDailyScore({ uid, date, dayNumber }) {
   const ready = await ensureFirebaseReady();
   if (!ready || !uid) return null;
 
@@ -42,7 +43,12 @@ export async function fetchUserDailyScore({ uid, date }) {
     const googleDocRef = fs.doc(db, 'scores', `${uid}_${date}`);
     const googleSnap = await fs.getDoc(googleDocRef);
     if (googleSnap.exists()) {
-      return { docId: googleSnap.id, ...googleSnap.data() };
+      const data = googleSnap.data();
+      if (dayNumber !== undefined && data.dayNumber !== undefined && Number(data.dayNumber) !== Number(dayNumber)) {
+        console.warn('Bulunan skor bugünün dayNumber ile eşleşmiyor:', data.dayNumber, 'beklenen:', dayNumber);
+        return null;
+      }
+      return { docId: googleSnap.id, ...data };
     }
 
     return null;
@@ -124,7 +130,7 @@ async function updatePlayerProfile(profileId, playerName, photoURL, won, guesses
     const playerRef = fs.doc(db, 'players', profileId);
     const playerSnap = await fs.getDoc(playerRef);
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     let data;
 
     if (playerSnap.exists()) {
@@ -138,7 +144,7 @@ async function updatePlayerProfile(profileId, playerName, photoURL, won, guesses
       const lastPlayed = data.lastPlayedDate || '';
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      const yesterdayStr = getLocalDateString(yesterday);
 
       if (won) {
         if (lastPlayed === yesterdayStr) {
@@ -187,15 +193,15 @@ export async function getLeaderboard(period = 'daily') {
     let startDate;
 
     if (period === 'daily') {
-      startDate = now.toISOString().split('T')[0];
+      startDate = getLocalDateString(now);
     } else if (period === 'weekly') {
       const d = new Date(now);
       d.setDate(d.getDate() - 7);
-      startDate = d.toISOString().split('T')[0];
+      startDate = getLocalDateString(d);
     } else {
       const d = new Date(now);
       d.setDate(d.getDate() - 30);
-      startDate = d.toISOString().split('T')[0];
+      startDate = getLocalDateString(d);
     }
 
     let q;

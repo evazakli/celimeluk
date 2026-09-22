@@ -1,4 +1,5 @@
 // Çelimeluk - Personal Statistics (localStorage)
+import { getLocalDateString } from './date-utils.js';
 
 const STATS_KEY = 'celimeluk_stats';
 
@@ -39,7 +40,7 @@ function saveStats(stats) {
 
 export function updateStats(won, guessCount, elapsedSeconds) {
   const stats = getStats();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
 
   stats.gamesPlayed++;
 
@@ -55,7 +56,7 @@ export function updateStats(won, guessCount, elapsedSeconds) {
     // Streak
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = getLocalDateString(yesterday);
 
     if (stats.lastPlayedDate === yesterdayStr || stats.lastPlayedDate === null) {
       stats.currentStreak++;

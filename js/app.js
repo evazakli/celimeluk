@@ -21,6 +21,7 @@ import {
 } from './leaderboard.js';
 import { getStats, updateStats, renderStats } from './stats.js';
 import { generateShareText, shareResult } from './share.js';
+import { getLocalDateString } from './date-utils.js';
 
 // --- Constants ---
 const STORAGE_KEY = 'celimeluk_game';
@@ -87,7 +88,22 @@ async function init() {
 
   // Check for saved local game
   const savedGame = loadGameState();
-  if (savedGame && savedGame.targetWord === dayInfo.word) {
+  const todayStr = getLocalDateString();
+  const currentStats = getStats();
+
+  // Self-heal: If local storage has a finished game for today, but currentStats.lastPlayedDate !== todayStr,
+  // it was fabricated by the previous bug (no legitimate game was ever finished today).
+  const isCorruptedBugGame = savedGame &&
+    savedGame.targetWord === dayInfo.word &&
+    savedGame.isGameOver &&
+    currentStats.lastPlayedDate !== todayStr;
+
+  if (isCorruptedBugGame) {
+    console.warn('Bozuk yerel oyun durumu tespit edildi (bugün tamamlanmamış), sıfırlanıyor.');
+    localStorage.removeItem(STORAGE_KEY);
+    game = new Game(dayInfo.word);
+    hideDailyCountdownBanner();
+  } else if (savedGame && savedGame.targetWord === dayInfo.word) {
     // Restore existing daily game
     game = Game.deserialize(savedGame);
     restoreGameUI();
@@ -235,7 +251,21 @@ async function loadDailyGame() {
   resetBoard();
 
   const savedGame = loadGameState();
-  if (savedGame && savedGame.targetWord === dayInfo.word) {
+  const todayStr = getLocalDateString();
+  const currentStats = getStats();
+
+  const isCorruptedBugGame = savedGame &&
+    savedGame.targetWord === dayInfo.word &&
+    savedGame.isGameOver &&
+    currentStats.lastPlayedDate !== todayStr;
+
+  if (isCorruptedBugGame) {
+    console.warn('Bozuk yerel oyun durumu tespit edildi (bugün tamamlanmamış), sıfırlanıyor.');
+    localStorage.removeItem(STORAGE_KEY);
+    game = new Game(dayInfo.word);
+    hideDailyCountdownBanner();
+    timerEl.textContent = '00:00.0';
+  } else if (savedGame && savedGame.targetWord === dayInfo.word) {
     game = Game.deserialize(savedGame);
     restoreGameUI();
     if (game.isGameOver) {
@@ -442,7 +472,7 @@ async function submitScoreToFirebase(guessCount, elapsed, won) {
   await submitScore({
     playerName,
     photoURL: photo || '',
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateString(),
     dayNumber: dayInfo.dayNumber,
     guesses: guessCount,
     time: elapsed,
@@ -494,7 +524,7 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
   if (currentMode !== 'daily') return false;
   if (!dayInfo) dayInfo = getWordOfDay();
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const uid = user ? user.uid : getUid();
 
   if (!uid) return false;
@@ -503,35 +533,50 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
   try {
     const cloudScore = await fetchUserDailyScore({
       uid,
-      date: today
+      date: today,
+      dayNumber: dayInfo.dayNumber
     });
 
-    if (!cloudScore) return false;
+    if (!cloudScore) {
+      // Self-healing: if Firestore has NO score for today, but local state was corrupted
+      // with a fake 1-guess win of today's word without any actual gameplay
+      if (game && game.isGameOver && game.targetWord === dayInfo.word &&
+          game.guesses?.length === 1 && game.guesses[0]?.word === dayInfo.word &&
+          getStats().lastPlayedDate !== today) {
+        console.warn('Bozuk yerel oyun durumu tespit edildi (bulutta kayıt yok), temizleniyor.');
+        game = new Game(dayInfo.word);
+        saveGameState();
+        resetBoard();
+        hideDailyCountdownBanner();
+        closeModal('result-modal');
+      }
+      return false;
+    }
+
+    // Verify this cloud score is truly for today's word and dayNumber
+    if (cloudScore.dayNumber !== undefined && Number(cloudScore.dayNumber) !== dayInfo.dayNumber) {
+      console.warn('Bulunan bulut skoru gün numarası ile eşleşmiyor, senkronize edilmedi.');
+      return false;
+    }
 
     console.log('Buluttan bugünkü oyun bulundu ve senkronize ediliyor:', cloudScore);
 
     // Reconstruct game
     let restoredGame = null;
-    if (cloudScore.gameState && cloudScore.gameState.targetWord === dayInfo.word && cloudScore.gameState.guesses?.length > 0) {
+    if (cloudScore.gameState && cloudScore.gameState.targetWord === dayInfo.word && Array.isArray(cloudScore.gameState.guesses) && cloudScore.gameState.guesses.length > 0) {
       restoredGame = Game.deserialize(cloudScore.gameState);
-    } else if (game && game.targetWord === dayInfo.word && game.guesses?.length > 0) {
+    } else if (game && game.targetWord === dayInfo.word && Array.isArray(game.guesses) && game.guesses.length > 0) {
       // PRESERVE local game guesses!
       restoredGame = game;
       restoredGame.won = Boolean(cloudScore.won);
       restoredGame.lost = !cloudScore.won;
     } else {
+      // NEVER leak or fabricate the target word into guesses!
       restoredGame = new Game(dayInfo.word);
       restoredGame.won = Boolean(cloudScore.won);
       restoredGame.lost = !cloudScore.won;
       restoredGame.startTime = Date.now() - (cloudScore.time || 60) * 1000;
       restoredGame.endTime = Date.now();
-
-      // Ensure guesses array is not empty so board is NEVER empty while waiting!
-      const targetLetters = dayInfo.word.split('').map(char => ({
-        letter: char,
-        status: restoredGame.won ? 'correct' : 'absent'
-      }));
-      restoredGame.guesses = [{ word: dayInfo.word, letters: targetLetters }];
     }
 
     // Check if local game is already this exact completed game with guesses
@@ -570,8 +615,8 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
     updateKeyboardColors(keyboardEl, game.letterStatuses);
     showDailyCountdownBanner();
 
-    // If cloud was missing gameState, patch it now
-    if (!cloudScore.gameState || !cloudScore.gameState.guesses?.length) {
+    // If cloud was missing gameState, patch it now if we have actual guesses
+    if ((!cloudScore.gameState || !cloudScore.gameState.guesses?.length) && game.guesses?.length > 0) {
       patchCloudScoreGameState(uid, today, game.serialize()).catch(() => {});
     }
 
@@ -631,15 +676,6 @@ function restoreGameUI() {
         restoreRow(boardEl, r, game.guesses[r].letters);
       }
     }
-  } else if (game.isGameOver && game.targetWord) {
-    // If completed game had empty guesses, reconstruct the target word row
-    const targetLetters = game.targetWord.split('').map(char => ({
-      letter: char,
-      status: game.won ? 'correct' : 'absent'
-    }));
-    restoreRow(boardEl, 0, targetLetters);
-    game.guesses = [{ word: game.targetWord, letters: targetLetters }];
-    saveGameState();
   }
 }
 
