@@ -675,6 +675,9 @@ function setupButtons() {
     document.querySelector('.tab-btn[data-period="daily"]')?.classList.add('active');
   };
 
+  // Leaderboard button in header
+  document.getElementById('btn-leaderboard')?.addEventListener('click', openLeaderboardWithData);
+
   // Logo / Title click -> Fuzûlî Quote Modal
   const logoBtn = document.getElementById('logo-btn');
   if (logoBtn) {
