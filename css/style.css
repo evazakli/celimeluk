@@ -889,11 +889,19 @@ body {
   color: var(--color-accent);
   font-variant-numeric: tabular-nums;
 }
+.lb-score.lb-score-zero {
+  color: var(--text-secondary);
+  opacity: 0.75;
+}
 .lb-score-label {
   font-size: 0.65rem;
   color: var(--text-secondary);
   font-weight: 600;
   text-transform: uppercase;
+}
+.lb-tag.lb-tag-lost {
+  color: #e74c3c;
+  font-weight: 700;
 }
 
 .rank-medal { font-size: 1.15rem; }

@@ -82,13 +82,13 @@ export async function submitScore({ playerName, photoURL, date, dayNumber, guess
       return null;
     }
 
-    const cleanGuesses = Number(guesses) || 0;
-    if (won && (cleanGuesses < 1 || cleanGuesses > 6)) {
+    const cleanGuesses = Number(guesses) || (won ? 0 : 6);
+    if (cleanGuesses < 1 || cleanGuesses > 6) {
       console.warn('Geçersiz tahmin sayısı ile skor kaydedilemez:', cleanGuesses);
       return null;
     }
     const cleanTime = Math.round((Number(time) || 0) * 100) / 100;
-    const calculatedPoints = calculateGameScore(won, cleanGuesses, cleanTime);
+    const calculatedPoints = won ? calculateGameScore(true, cleanGuesses, cleanTime) : 0;
 
     const docId = `${uid}_${date}`;
     const docRef = fs.doc(db, 'scores', docId);
@@ -232,9 +232,9 @@ export async function getLeaderboard(period = 'daily') {
     const scores = [];
     snapshot.forEach(doc => {
       const d = doc.data();
-      const rawGuesses = Number(d.guesses) || 0;
+      const rawGuesses = Number(d.guesses) || (d.won ? 0 : 6);
       const rawTime = Number(d.time) || 0;
-      const points = d.points || calculateGameScore(d.won, rawGuesses, rawTime);
+      const points = d.won ? (d.points || calculateGameScore(true, rawGuesses, rawTime)) : 0;
 
       scores.push({
         id: doc.id,
@@ -261,9 +261,9 @@ export async function getLeaderboard(period = 'daily') {
         const ySnap = await fs.getDocs(yQ);
         ySnap.forEach(doc => {
           const d = doc.data();
-          const rawGuesses = Number(d.guesses) || 0;
+          const rawGuesses = Number(d.guesses) || (d.won ? 0 : 6);
           const rawTime = Number(d.time) || 0;
-          const points = d.points || calculateGameScore(d.won, rawGuesses, rawTime);
+          const points = d.won ? (d.points || calculateGameScore(true, rawGuesses, rawTime)) : 0;
           if (rawGuesses >= 1 && rawGuesses <= 6) {
             validScores.push({
               id: doc.id,
@@ -277,10 +277,21 @@ export async function getLeaderboard(period = 'daily') {
         });
       }
 
-      // Günlük Analitik Sıralama: En yüksek Puan -> En az deneme -> En kısa süre
+      // Günlük Analitik Sıralama:
+      // 1. Kazananlar önce (puan > 0), bilemeyenler sonra (puan = 0)
+      // 2. Kazananlar kendi arasında: En yüksek Puan -> En az deneme -> En kısa süre
+      // 3. Bilemeyenler kendi arasında: En kısa sürede tamamlayan önde
       validScores.sort((a, b) => {
-        if (b.points !== a.points) return b.points - a.points;
-        if (a.guesses > 0 && b.guesses > 0 && a.guesses !== b.guesses) return a.guesses - b.guesses;
+        const aWon = Boolean(a.won);
+        const bWon = Boolean(b.won);
+        if (aWon !== bWon) return aWon ? -1 : 1;
+
+        if (aWon && bWon) {
+          if (b.points !== a.points) return b.points - a.points;
+          if (a.guesses > 0 && b.guesses > 0 && a.guesses !== b.guesses) return a.guesses - b.guesses;
+          return a.time - b.time;
+        }
+
         return a.time - b.time;
       });
       return validScores;
@@ -314,12 +325,12 @@ function aggregateScores(scores) {
     }
     const p = playerMap.get(uid);
     p.games++;
-    p.totalPoints += (s.points || calculateGameScore(s.won, s.guesses, s.time));
+    p.totalPoints += (s.won ? (s.points || calculateGameScore(true, s.guesses, s.time)) : 0);
+    p.totalGuesses += s.guesses;
+    p.totalTime += s.time;
 
     if (s.won) {
       p.wins++;
-      if (s.guesses > 0) p.totalGuesses += s.guesses;
-      p.totalTime += s.time;
     }
     if (s.playerName) p.playerName = s.playerName;
     if (s.photoURL && !p.photoURL) p.photoURL = s.photoURL;
@@ -389,25 +400,30 @@ export function renderLeaderboard(scores, period) {
     const p2 = scores[1];
     const p3 = scores[2] || null;
 
+    const getPodiumSub = (p) => {
+      if (!isDaily) return `%${p.winRate} Galibiyet`;
+      return p.won ? `${p.guesses} Deneme • ${formatLeaderboardTime(p.time)}` : 'Bilemedi ❌';
+    };
+
     html += `<div class="podium-container">
       <div class="podium-card second">
         <div class="podium-medal">🥈</div>
         <div class="podium-name">${p2.photoURL ? `<img class="badge-avatar-img" src="${p2.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}${escapeHtml(p2.playerName)}</div>
-        <div class="podium-points">${isDaily ? p2.points : p2.totalPoints} <span style="font-size:0.65rem">P</span></div>
-        <div class="podium-sub">${isDaily ? `${p2.guesses} Deneme • ${formatLeaderboardTime(p2.time)}` : `%${p2.winRate} Galibiyet`}</div>
+        <div class="podium-points">${isDaily ? (p2.won ? p2.points : 0) : p2.totalPoints} <span style="font-size:0.65rem">P</span></div>
+        <div class="podium-sub">${getPodiumSub(p2)}</div>
       </div>
       <div class="podium-card first">
         <div class="podium-medal">👑 🥇</div>
         <div class="podium-name">${p1.photoURL ? `<img class="badge-avatar-img" src="${p1.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}${escapeHtml(p1.playerName)}</div>
-        <div class="podium-points">${isDaily ? p1.points : p1.totalPoints} <span style="font-size:0.65rem">P</span></div>
-        <div class="podium-sub">${isDaily ? `${p1.guesses} Deneme • ${formatLeaderboardTime(p1.time)}` : `%${p1.winRate} Galibiyet`}</div>
+        <div class="podium-points">${isDaily ? (p1.won ? p1.points : 0) : p1.totalPoints} <span style="font-size:0.65rem">P</span></div>
+        <div class="podium-sub">${getPodiumSub(p1)}</div>
       </div>
       ${p3 ? `
       <div class="podium-card third">
         <div class="podium-medal">🥉</div>
         <div class="podium-name">${p3.photoURL ? `<img class="badge-avatar-img" src="${p3.photoURL}" alt="" onerror="this.style.display='none'"> ` : ''}${escapeHtml(p3.playerName)}</div>
-        <div class="podium-points">${isDaily ? p3.points : p3.totalPoints} <span style="font-size:0.65rem">P</span></div>
-        <div class="podium-sub">${isDaily ? `${p3.guesses} Deneme • ${formatLeaderboardTime(p3.time)}` : `%${p3.winRate} Galibiyet`}</div>
+        <div class="podium-points">${isDaily ? (p3.won ? p3.points : 0) : p3.totalPoints} <span style="font-size:0.65rem">P</span></div>
+        <div class="podium-sub">${getPodiumSub(p3)}</div>
       </div>` : ''}
     </div>`;
   }
@@ -419,7 +435,7 @@ export function renderLeaderboard(scores, period) {
     const rankIcons = ['🥇', '🥈', '🥉'];
     const rankDisplay = i < 3 ? rankIcons[i] : `#${i + 1}`;
 
-    const scoreDisplay = isDaily ? (s.points || 0) : (s.totalPoints || 0);
+    const scoreDisplay = isDaily ? (s.won ? (s.points || 0) : 0) : (s.totalPoints || 0);
     const timeDisplay = formatLeaderboardTime(s.time);
     const guessDisplay = isDaily ? `${s.guesses} Deneme` : `Ort. ${s.guesses.toFixed(1)} Deneme`;
 
@@ -434,14 +450,14 @@ export function renderLeaderboard(scores, period) {
               ${isCurrent ? '<span class="lb-you-tag">SİZ</span>' : ''}
             </div>
             <div class="lb-tags">
-              <span class="lb-tag">🎯 ${s.won ? guessDisplay : 'Bilemedi ❌'}</span>
-              <span class="lb-tag">⏱️ ${s.won ? timeDisplay : '-'}</span>
+              <span class="lb-tag ${s.won ? '' : 'lb-tag-lost'}">🎯 ${s.won ? guessDisplay : 'Bilemedi ❌'}</span>
+              <span class="lb-tag">⏱️ ${timeDisplay}</span>
               ${!isDaily ? `<span class="lb-tag">🎮 ${s.games} Oyun (%${s.winRate})</span>` : ''}
             </div>
           </div>
         </div>
         <div class="lb-right">
-          <div class="lb-score">${scoreDisplay}</div>
+          <div class="lb-score ${s.won ? '' : 'lb-score-zero'}">${scoreDisplay}</div>
           <div class="lb-score-label">${isDaily ? 'GÜN PUANI' : 'LİG PUANI'}</div>
         </div>
       </div>

@@ -250,13 +250,17 @@ export function showResultModal(won, guessCount, elapsedSeconds, targetWord, sco
       <div class="result-emoji">${won ? '🎯' : '😞'}</div>
       <div class="result-word">${targetWord.toLocaleUpperCase('tr-TR')}</div>
       <div class="result-detail">
-        ${won ? `${guessCount}/6 denemede ⏱️ ${timeStr}` : 'Kelimeyi bulamadınız'}
+        ${won ? `${guessCount}/6 denemede ⏱️ ${timeStr}` : `Kelimeyi bulamadınız (⏱️ ${timeStr})`}
       </div>
       ${won && score !== null ? `
         <div style="margin-top:10px; display:inline-block; padding:6px 14px; background:rgba(155,114,207,0.12); border:1px solid rgba(155,114,207,0.3); border-radius:20px; font-weight:800; font-size:1.05rem; color:var(--color-accent)">
           ⚡ ${score} Puan Kazandınız!
         </div>
-      ` : ''}
+      ` : (!won ? `
+        <div style="margin-top:10px; display:inline-block; padding:6px 14px; background:rgba(231,76,60,0.12); border:1px solid rgba(231,76,60,0.3); border-radius:20px; font-weight:800; font-size:0.95rem; color:#e74c3c">
+          0 Puan • Sıralamaya Eklendi 🏆
+        </div>
+      ` : '')}
     </div>
   `;
 

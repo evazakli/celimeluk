@@ -458,24 +458,25 @@ function onGameWon(guessCount) {
 function onGameLost(targetWord) {
   stopTimer();
   const elapsed = game.getElapsedSeconds();
+  const guessCount = (game.guesses && game.guesses.length > 0) ? game.guesses.length : 6;
 
   showToast(targetWord.toLocaleUpperCase('tr-TR'), 3000);
 
   if (currentMode === 'daily') {
     showDailyCountdownBanner();
-    const stats = updateStats(false, 0, elapsed);
+    const stats = updateStats(false, guessCount, elapsed);
 
     setTimeout(() => {
-      showResultModal(false, 0, elapsed, targetWord);
+      showResultModal(false, guessCount, elapsed, targetWord);
       renderStats(document.getElementById('stats-content'), stats);
       updateResultModalForMode();
     }, 2500);
 
-    submitScoreToFirebase(0, elapsed, false);
+    submitScoreToFirebase(guessCount, elapsed, false);
     saveGameState();
   } else {
     setTimeout(() => {
-      showResultModal(false, 0, elapsed, targetWord);
+      showResultModal(false, guessCount, elapsed, targetWord);
       updateResultModalForMode();
     }, 2500);
   }
@@ -503,8 +504,9 @@ function updateResultModalForMode() {
 async function submitScoreToFirebase(guessCount, elapsed, won) {
   if (currentMode !== 'daily') return;
 
-  if (won && (!guessCount || guessCount < 1 || guessCount > 6)) {
-    console.error('Geçersiz tahmin sayısı ile skor gönderilemez:', guessCount);
+  const cleanGuesses = Number(guessCount) || (won ? 0 : 6);
+  if (cleanGuesses < 1 || cleanGuesses > 6) {
+    console.error('Geçersiz tahmin sayısı ile skor gönderilemez:', cleanGuesses);
     return;
   }
 
