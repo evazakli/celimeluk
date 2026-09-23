@@ -360,12 +360,11 @@ function aggregateScores(scores) {
     });
   }
 
-  // Lig Sıralaması: En yüksek toplam lig puanı -> Kazanma oranı -> Ortalama deneme -> Ortalama süre
+  // Lig Sıralaması: En yüksek toplam lig puanı -> Kazanma oranı -> Oyun sayısı
   result.sort((a, b) => {
     if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
     if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-    if (a.guesses > 0 && b.guesses > 0 && a.guesses !== b.guesses) return a.guesses - b.guesses;
-    return a.time - b.time;
+    return b.games - a.games;
   });
 
   return result;
@@ -401,7 +400,7 @@ export function renderLeaderboard(scores, period) {
     const p3 = scores[2] || null;
 
     const getPodiumSub = (p) => {
-      if (!isDaily) return `%${p.winRate} Galibiyet`;
+      if (!isDaily) return `${p.games} Oyun • %${p.winRate} Galibiyet`;
       return p.won ? `${p.guesses} Deneme • ${formatLeaderboardTime(p.time)}` : 'Bilemedi ❌';
     };
 
@@ -436,8 +435,16 @@ export function renderLeaderboard(scores, period) {
     const rankDisplay = i < 3 ? rankIcons[i] : `#${i + 1}`;
 
     const scoreDisplay = isDaily ? (s.won ? (s.points || 0) : 0) : (s.totalPoints || 0);
-    const timeDisplay = formatLeaderboardTime(s.time);
-    const guessDisplay = isDaily ? `${s.guesses} Deneme` : `Ort. ${s.guesses.toFixed(1)} Deneme`;
+
+    const tagsHtml = isDaily
+      ? `
+        <span class="lb-tag ${s.won ? '' : 'lb-tag-lost'}">🎯 ${s.won ? `${s.guesses} Deneme` : 'Bilemedi ❌'}</span>
+        <span class="lb-tag">⏱️ ${formatLeaderboardTime(s.time)}</span>
+      `
+      : `
+        <span class="lb-tag">🎮 ${s.games} Oyun</span>
+        <span class="lb-tag">📈 %${s.winRate} Galibiyet</span>
+      `;
 
     html += `
       <div class="${rowClass}">
@@ -450,14 +457,12 @@ export function renderLeaderboard(scores, period) {
               ${isCurrent ? '<span class="lb-you-tag">SİZ</span>' : ''}
             </div>
             <div class="lb-tags">
-              <span class="lb-tag ${s.won ? '' : 'lb-tag-lost'}">🎯 ${s.won ? guessDisplay : 'Bilemedi ❌'}</span>
-              <span class="lb-tag">⏱️ ${timeDisplay}</span>
-              ${!isDaily ? `<span class="lb-tag">🎮 ${s.games} Oyun (%${s.winRate})</span>` : ''}
+              ${tagsHtml}
             </div>
           </div>
         </div>
         <div class="lb-right">
-          <div class="lb-score ${s.won ? '' : 'lb-score-zero'}">${scoreDisplay}</div>
+          <div class="lb-score ${isDaily && !s.won ? 'lb-score-zero' : ''}">${scoreDisplay}</div>
           <div class="lb-score-label">${isDaily ? 'GÜN PUANI' : 'LİG PUANI'}</div>
         </div>
       </div>
