@@ -20,7 +20,7 @@ import {
   calculateGameScore, fetchUserDailyScore
 } from './leaderboard.js';
 import { getStats, updateStats, renderStats } from './stats.js';
-import { generateShareText, shareResult } from './share.js';
+import { generateShareText, shareResult, shareToWhatsApp } from './share.js';
 import { getLocalDateString } from './date-utils.js';
 
 // --- Constants ---
@@ -861,14 +861,12 @@ function setupButtons() {
     closeModal('name-modal');
   });
 
-  // Share
+  // Share (WhatsApp)
   document.getElementById('btn-share')?.addEventListener('click', async () => {
     if (!game || !game.isGameOver) return;
     const text = generateShareText(dayInfo.dayNumber, game.guesses, game.won, game.getElapsedSeconds());
-    const result = await shareResult(text);
-    if (result === 'copied') {
-      showToast('Panoya kopyalandı! 📋');
-    }
+    await shareToWhatsApp(text);
+    showToast('WhatsApp açılıyor... 📱 (Panoya da kopyalandı)', 2500);
   });
 
   // Show leaderboard from result modal

@@ -550,6 +550,19 @@ body {
 .btn-primary:hover { background: #8B62BF; }
 .btn-secondary { background: var(--key-bg); color: var(--text-primary); }
 .btn-secondary:hover { background: var(--key-bg-hover); }
+.btn-whatsapp {
+  background: #25D366;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.28);
+}
+.btn-whatsapp:hover {
+  background: #20BD5A;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.btn-whatsapp:active {
+  transform: scale(0.96);
+}
 
 /* --- Google & Auth Styles --- */
 .btn-google {

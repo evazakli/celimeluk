@@ -11,6 +11,7 @@ const STATUS_EMOJIS = {
 export function generateShareText(dayNumber, guesses, won, elapsedSeconds) {
   const guessStr = won ? `${guesses.length}/6` : 'X/6';
   const timeStr = formatTime(elapsedSeconds);
+  const siteUrl = 'https://evazakli.github.io/celimeluk/';
 
   let text = `🎯 Çelimeluk #${dayNumber}\n${guessStr} ⏱️ ${timeStr}\n\n`;
 
@@ -19,7 +20,28 @@ export function generateShareText(dayNumber, guesses, won, elapsedSeconds) {
     text += line + '\n';
   }
 
+  const challenge = won
+    ? 'Günün kelimesini sen de bulabilir misin? Meydan okuyorum! 🧠'
+    : 'Günün kelimesi beni zorladı, sen bulabilir misin? 🧐';
+
+  text += `\n${challenge}\n👉 Hemen Oyna: ${siteUrl}`;
+
   return text.trim();
+}
+
+export async function shareToWhatsApp(text) {
+  // Also copy to clipboard as fallback / convenience
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    }
+  } catch (e) {
+    // Clipboard write could fail due to focus or permissions, ignore safely
+  }
+
+  const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+  window.open(waUrl, '_blank', 'noopener,noreferrer');
+  return 'whatsapp';
 }
 
 export async function shareResult(text) {
@@ -50,3 +72,4 @@ export async function shareResult(text) {
     return 'copied';
   }
 }
+
