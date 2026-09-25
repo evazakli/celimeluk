@@ -1,5 +1,3 @@
-// Çelimeluk - Share Module
-
 import { formatTime } from './ui.js';
 
 const STATUS_EMOJIS = {
@@ -8,12 +6,27 @@ const STATUS_EMOJIS = {
   absent: '⬜',
 };
 
-export function generateShareText(dayNumber, guesses, won, elapsedSeconds) {
+function calculateScore(won, guessCount, time) {
+  if (!won) return 0;
+  const guessScores = { 1: 600, 2: 500, 3: 420, 4: 350, 5: 280, 6: 200 };
+  const baseGuessScore = guessScores[guessCount] || 200;
+  const t = Math.max(1, Number(time) || 60);
+  const timeBonus = Math.max(20, Math.round(400 * Math.exp(-t / 75)));
+  return baseGuessScore + timeBonus;
+}
+
+export function generateShareText(dayNumber, guesses, won, elapsedSeconds, score = null) {
   const guessStr = won ? `${guesses.length}/6` : 'X/6';
   const timeStr = formatTime(elapsedSeconds);
   const siteUrl = 'https://evazakli.github.io/celimeluk/';
 
-  let text = `🎯 Çelimeluk #${dayNumber}\n${guessStr} ⏱️ ${timeStr}\n\n`;
+  const finalScore = (typeof score === 'number')
+    ? score
+    : calculateScore(won, guesses.length, elapsedSeconds);
+
+  const scoreBadge = won ? `⚡ ${finalScore} Puan` : `0 Puan`;
+
+  let text = `🎯 Çelimeluk #${dayNumber}\n${guessStr} ⏱️ ${timeStr} • ${scoreBadge}\n\n`;
 
   for (const guess of guesses) {
     const line = guess.letters.map(l => STATUS_EMOJIS[l.status]).join('');

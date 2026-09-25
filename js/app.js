@@ -864,7 +864,8 @@ function setupButtons() {
   // Share (WhatsApp)
   document.getElementById('btn-share')?.addEventListener('click', async () => {
     if (!game || !game.isGameOver) return;
-    const text = generateShareText(dayInfo.dayNumber, game.guesses, game.won, game.getElapsedSeconds());
+    const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : 0;
+    const text = generateShareText(dayInfo.dayNumber, game.guesses, game.won, game.getElapsedSeconds(), score);
     await shareToWhatsApp(text);
     showToast('WhatsApp açılıyor... 📱 (Panoya da kopyalandı)', 2500);
   });
