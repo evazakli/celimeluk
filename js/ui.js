@@ -258,7 +258,7 @@ export function showResultModal(won, guessCount, elapsedSeconds, targetWord, sco
         </div>
       ` : (!won ? `
         <div style="margin-top:10px; display:inline-block; padding:6px 14px; background:rgba(231,76,60,0.12); border:1px solid rgba(231,76,60,0.3); border-radius:20px; font-weight:800; font-size:0.95rem; color:#e74c3c">
-          0 Puan • Sıralamaya Eklendi 🏆
+          0 Puan • Pes Etme!
         </div>
       ` : '')}
     </div>
