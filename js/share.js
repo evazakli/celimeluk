@@ -18,7 +18,7 @@ function calculateScore(won, guessCount, time) {
 export function generateShareText(dayNumber, guesses, won, elapsedSeconds, score = null) {
   const guessStr = won ? `${guesses.length}/6` : 'X/6';
   const timeStr = formatTime(elapsedSeconds);
-  const siteUrl = 'https://evazakli.github.io/celimeluk/';
+  const siteUrl = 'https://evazakli.github.io/celimeluk/?v=2';
 
   const finalScore = (typeof score === 'number')
     ? score
