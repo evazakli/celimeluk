@@ -864,6 +864,31 @@ function setupButtons() {
     closeModal('name-modal');
   });
 
+  // KVKK and Disclaimer Modals
+  document.getElementById('btn-open-kvkk')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeModal('name-modal');
+    setTimeout(() => openModal('kvkk-modal'), 120);
+  });
+
+  document.getElementById('btn-open-disclaimer')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeModal('name-modal');
+    setTimeout(() => openModal('disclaimer-modal'), 120);
+  });
+
+  document.getElementById('btn-back-from-kvkk')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeModal('kvkk-modal');
+    setTimeout(() => openModal('name-modal'), 120);
+  });
+
+  document.getElementById('btn-back-from-disclaimer')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    closeModal('disclaimer-modal');
+    setTimeout(() => openModal('name-modal'), 120);
+  });
+
   // Share (WhatsApp)
   document.getElementById('btn-share')?.addEventListener('click', async () => {
     if (!game || !game.isGameOver) return;

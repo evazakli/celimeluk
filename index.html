@@ -175,6 +175,113 @@
             <button id="btn-logout" class="btn btn-danger-outline">Çıkış Yap</button>
           </div>
         </div>
+
+        <!-- Yasal Bilgilendirme Linkleri -->
+        <div class="auth-legal-footer">
+          <button type="button" class="legal-link-btn" id="btn-open-kvkk">🛡️ KVKK ve Gizlilik</button>
+          <span class="legal-separator">•</span>
+          <button type="button" class="legal-link-btn" id="btn-open-disclaimer">⚖️ Sorumluluk Reddi</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- KVKK ve Gizlilik Aydınlatma Metni Modalı -->
+  <dialog id="kvkk-modal" class="modal modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🛡️ KVKK ve Gizlilik Aydınlatma Metni</h2>
+        <button class="modal-close" aria-label="Kapat">&times;</button>
+      </div>
+      <div class="modal-body legal-modal-body">
+        <div class="legal-date">Son Güncelleme: 27 Eylül 2026</div>
+
+        <section class="legal-section">
+          <h3>1. Veri Sorumlusu</h3>
+          <p>6698 sayılı Kişisel Verilerin Korunması Kanunu ("KVKK") uyarınca, <strong>Çelimeluk</strong> ("Platform") olarak kişisel verilerinizin güvenliğine ve mahremiyetine azami hassasiyet göstermekteyiz. İşbu metin, oyuncularımızın kişisel verilerinin toplanma yöntemleri, işlenme amaçları ve yasal hakları konusunda şeffaf biçimde bilgilendirilmesi amacıyla hazırlanmıştır.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>2. İşlenen Kişisel Veriler</h3>
+          <p>Oyunu Google hesabınızla oynamanız halinde platformumuz tarafından aşağıdaki veriler işlenmektedir:</p>
+          <ul>
+            <li><strong>Kimlik ve Profil Bilgileri:</strong> Google OAuth 2.0 oturum açma servisi üzerinden aktarılan Ad-Soyad, E-posta adresi, Profil Fotoğrafı URL'si ve Benzersiz Google Kullanıcı Kimliği (UID).</li>
+            <li><strong>Oyun ve Performans Verileri:</strong> Günün kelimesi için yapılan tahminler, harf durumları, tahmin sayısı, oyunu tamamlama süresi, analitik lig puanı, galibiyet serisi ve şampiyonlar ligi sıralama derecesi.</li>
+            <li><strong>Teknik ve Cihaz Verileri:</strong> Tarayıcınızda yerel olarak saklanan benzersiz Cihaz Kimliği (Device ID), işletim sistemi/platform türü (Android, iOS, Windows vb.), ekran çözünürlüğü ve son aktiflik zaman damgaları (aynı gün içerisinde aynı cihazdan mükerrer oynamaları önlemek ve skor senkronizasyonunu sağlamak amacıyla).</li>
+          </ul>
+        </section>
+
+        <section class="legal-section">
+          <h3>3. Kişisel Verilerin İşlenme Amaçları</h3>
+          <ul>
+            <li>Google kimlik doğrulaması ile tekil oyuncu profilinizin oluşturulması ve korunması,</li>
+            <li>Oyun skorlarınızın ve günlük oyun durumunuzun farklı cihazlarınız arasında kesintisiz senkronizasyonu,</li>
+            <li>Günlük, haftalık ve aylık Şampiyonlar Ligi sıralamasının hesaplanıp adil şekilde yayınlanması,</li>
+            <li>Oyun performans istatistiklerinizin (kazanma oranı, ortalama süre, tahmin dağılımı vb.) size özel hesaplanarak sunulması,</li>
+            <li>Mükerrer hesap kullanımı ve kötüye kullanımların önlenerek tüm oyuncular için adil ve güvenilir bir rekabet ortamının temin edilmesi.</li>
+          </ul>
+        </section>
+
+        <section class="legal-section">
+          <h3>4. Verilerin Saklanması ve Aktarımı</h3>
+          <p>Kişisel verileriniz Google Firebase (Google Cloud) bulut altyapısında şifrelenmiş olarak barındırılmaktadır. Verileriniz <strong>hiçbir surette reklam, pazarlama, ticari profilleme veya üçüncü şahıslara satış amacıyla kullanılmaz</strong>. Yasal mevzuattan kaynaklanan zorunluluklar haricinde hiçbir kurum veya şahısla paylaşılmaz.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>5. Hukuki Sebepler</h3>
+          <p>Kişisel verileriniz, 6698 sayılı KVKK'nın 5. maddesinin 2. fıkrasının (c) bendi (Bir sözleşmenin kurulması veya ifasıyla doğrudan doğruya ilgili olması) ve (f) bendi (İlgili kişinin temel hak ve özgürlüklerine zarar vermemek kaydıyla veri sorumlusunun meşru menfaatleri) kapsamında hukuka uygun olarak işlenmektedir.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>6. İlgili Kişi Olarak Haklarınız (KVKK Madde 11)</h3>
+          <p>KVKK'nın 11. maddesi kapsamında; verilerinizin işlenip işlenmediğini öğrenme, işlenmişse buna ilişkin bilgi talep etme, eksik/yanlış verilerin düzeltilmesini isteme ve verilerinizin silinmesini/anonimleştirilmesini talep etme hakkına sahipsiniz. Hesabınızın ve oyun kayıtlarınızın silinmesi talepleriniz için sistem üzerinden oturumunuzu kapatabilir veya geliştirici ile iletişime geçebilirsiniz.</p>
+        </section>
+
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button class="btn btn-secondary legal-back-btn" id="btn-back-from-kvkk" style="flex:1;">← Profil Paneline Dön</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Sorumluluk Reddi Beyanı Modalı -->
+  <dialog id="disclaimer-modal" class="modal modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>⚖️ Sorumluluk Reddi Beyanı</h2>
+        <button class="modal-close" aria-label="Kapat">&times;</button>
+      </div>
+      <div class="modal-body legal-modal-body">
+        <div class="legal-date">Son Güncelleme: 27 Eylül 2026</div>
+
+        <section class="legal-section">
+          <h3>1. Hizmetin Niteliği ve Genel Beyan</h3>
+          <p>Çelimeluk; zihinsel pratik yapmayı, Türkçe kelime dağarcığını zenginleştirmeyi ve keyifli vakit geçirmeyi hedefleyen bağımsız bir bulmaca oyunudur. Platform, kullanıcılara <strong>"olduğu gibi" (as is)</strong> ve <strong>"mevcut olduğu şekilde" (as available)</strong> sunulmaktadır.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>2. Kesintisizlik ve Teknik Sorumluluk</h3>
+          <p>Oyunun her an kesintisiz, hatasız veya gecikmesiz çalışacağı garanti edilmemektedir. İnternet servis sağlayıcıları, tarayıcı uyumsuzlukları, cihaz bellek kısıtlamaları veya bulut altyapı güncellemelerinden ötürü yaşanabilecek geçici kesintilerden, veri senkronizasyon aksaklıklarından veya skor kayıplarından platform yönetimi sorumlu tutulamaz.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>3. Kelime Dağarcığı ve İçerik Tarafsızlığı</h3>
+          <p>Oyunda kullanılan 5 harfli kelimeler Türk Dil Kurumu (TDK) Güncel Türkçe Sözlük ve yaygın edebi Türkçe kaynaklar referans alınarak seçilmektedir. Kelimelerin sözlük tanımları veya dil bilgisel varlığı; herhangi bir siyasi, felsefi, dini veya ideolojik görüşü savunmaz, temsil etmez ve herhangi bir kişi/zümreyi hedef almaz.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>4. Adil Oyun ve Manipülasyon Yasağı</h3>
+          <p>Çelimeluk Şampiyonlar Ligi'nde oyuncuların adil ve centilmence yarışması esastır. Otomasyon araçları (botlar), tersine mühendislik, tarayıcı konsolu manipülasyonu veya hile yoluyla elde edilen haksız skorlar tespit edildiğinde silinir ve ilgili oyuncunun skor tablosuna katılımı tek taraflı olarak engellenebilir.</p>
+        </section>
+
+        <section class="legal-section">
+          <h3>5. Fikri ve Sınai Mülkiyet</h3>
+          <p>Çelimeluk markası, logosu, görsel arayüz tasarımı, özgün analitik puanlama formülleri ve yazılım mimarisi telif hakkı koruması altındadır. Yazılı izin alınmaksızın kaynak kodlarının kopyalanması, klonlanması veya ticari amaçla dağıtılması yasaktır.</p>
+        </section>
+
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button class="btn btn-secondary legal-back-btn" id="btn-back-from-disclaimer" style="flex:1;">← Profil Paneline Dön</button>
+        </div>
       </div>
     </div>
   </dialog>
