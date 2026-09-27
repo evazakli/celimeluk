@@ -1,6 +1,6 @@
-// Çelimeluk - Leaderboard Module with Analytical Ranking
 import { getDb, getUid, getEmail, isSignedIn, ensureFirebaseReady } from './firebase-config.js';
 import { getLocalDateString } from './date-utils.js';
+import { getDeviceId, getDeviceInfo } from './device.js';
 
 let firestoreModules = null;
 
@@ -106,6 +106,8 @@ export async function submitScore({ playerName, photoURL, date, dayNumber, guess
       email: userEmail || '',
       playerName: playerName || 'Google Oyuncusu',
       photoURL: photoURL || '',
+      deviceId: getDeviceId(),
+      devicePlatform: getDeviceInfo().platform,
       date,
       dayNumber,
       guesses: cleanGuesses,
@@ -167,10 +169,14 @@ async function updatePlayerProfile(profileId, playerName, photoURL, won, guesses
 
       data.maxStreak = Math.max(data.maxStreak || 0, data.currentStreak || 0);
       data.lastPlayedDate = today;
+      data.lastDeviceId = getDeviceId();
+      data.devicePlatform = getDeviceInfo().platform;
     } else {
       data = {
         name: playerName,
         photoURL: photoURL || '',
+        lastDeviceId: getDeviceId(),
+        devicePlatform: getDeviceInfo().platform,
         totalGames: 1,
         totalWins: won ? 1 : 0,
         totalPoints: points || 0,

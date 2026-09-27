@@ -22,6 +22,7 @@ import {
 import { getStats, updateStats, renderStats } from './stats.js';
 import { generateShareText, shareResult, shareToWhatsApp } from './share.js';
 import { getLocalDateString } from './date-utils.js';
+import { recordDeviceSession } from './device.js';
 
 // --- Constants ---
 const STORAGE_KEY = 'celimeluk_game';
@@ -199,6 +200,7 @@ async function handleAuthChange(user) {
     playerName = user.displayName || 'Oyuncu';
     localStorage.setItem(NAME_KEY, playerName);
     await cleanupCorruptedCloudScore(user);
+    recordDeviceSession(user);
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);
@@ -807,6 +809,7 @@ function setupButtons() {
       if (user) {
         playerName = user.displayName || 'Oyuncu';
         localStorage.setItem(NAME_KEY, playerName);
+        recordDeviceSession(user);
         updateAuthUI(user);
         updatePlayerBadge();
         closeModal('name-modal');
