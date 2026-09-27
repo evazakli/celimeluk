@@ -107,6 +107,8 @@ export async function submitScore({ playerName, photoURL, date, dayNumber, guess
       playerName: playerName || 'Google Oyuncusu',
       photoURL: photoURL || '',
       deviceId: getDeviceId(),
+      deviceFingerprint: getDeviceInfo().deviceFingerprint,
+      browserName: getDeviceInfo().browserName,
       devicePlatform: getDeviceInfo().platform,
       date,
       dayNumber,
@@ -169,14 +171,20 @@ async function updatePlayerProfile(profileId, playerName, photoURL, won, guesses
 
       data.maxStreak = Math.max(data.maxStreak || 0, data.currentStreak || 0);
       data.lastPlayedDate = today;
-      data.lastDeviceId = getDeviceId();
-      data.devicePlatform = getDeviceInfo().platform;
+      const devInfo = getDeviceInfo();
+      data.lastDeviceId = devInfo.deviceId;
+      data.deviceFingerprint = devInfo.deviceFingerprint;
+      data.browserName = devInfo.browserName;
+      data.devicePlatform = devInfo.platform;
     } else {
+      const devInfo = getDeviceInfo();
       data = {
         name: playerName,
         photoURL: photoURL || '',
-        lastDeviceId: getDeviceId(),
-        devicePlatform: getDeviceInfo().platform,
+        lastDeviceId: devInfo.deviceId,
+        deviceFingerprint: devInfo.deviceFingerprint,
+        browserName: devInfo.browserName,
+        devicePlatform: devInfo.platform,
         totalGames: 1,
         totalWins: won ? 1 : 0,
         totalPoints: points || 0,
