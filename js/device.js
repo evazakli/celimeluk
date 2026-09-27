@@ -172,7 +172,21 @@ export async function recordDeviceSession(user) {
 
     await fs.setDoc(deviceRef, payload, { merge: true });
     console.log(`[Cihaz Takibi] Cihaz: ${deviceId} | Hesap Sayısı: ${accountEmails.length} | Çoklu Hesap: ${accountEmails.length > 1}`);
+
+    // Ayrıca garanti olması için players/{uid} profiline de cihaz bilgilerini kaydet
+    try {
+      const playerRef = fs.doc(db, 'players', uid);
+      await fs.setDoc(playerRef, {
+        deviceId,
+        devicePlatform: info.platform,
+        deviceType: info.deviceType,
+        deviceScreen: info.screenResolution,
+        lastActive: fs.serverTimestamp()
+      }, { merge: true });
+    } catch (pErr) {
+      console.warn('Player profilinde cihaz güncellenirken hata:', pErr);
+    }
   } catch (err) {
-    console.warn('Cihaz bilgisi kaydedilirken hata (arka plan):', err);
+    console.error('Firestore [devices] yazma hatası (Firebase Console > Firestore > Rules sekmesinde "devices" koleksiyonuna izin verilmiş olmalı):', err);
   }
 }
