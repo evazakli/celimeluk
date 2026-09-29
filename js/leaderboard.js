@@ -200,6 +200,16 @@ async function updatePlayerProfile(profileId, playerName, photoURL, won, guesses
   }
 }
 
+export function formatShortDate(dateStr) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const months = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
+  const day = parseInt(parts[2], 10);
+  const monthIdx = parseInt(parts[1], 10) - 1;
+  return `${day} ${months[monthIdx] || ''}`;
+}
+
 // Fetch leaderboard data
 export async function getLeaderboard(period = 'daily') {
   const ready = await ensureFirebaseReady();
@@ -213,18 +223,41 @@ export async function getLeaderboard(period = 'daily') {
     const db = getDb();
 
     const now = new Date();
+    const today = getLocalDateString(now);
     let startDate;
+    let periodInfo = {};
 
     if (period === 'daily') {
-      startDate = getLocalDateString(now);
+      startDate = today;
+      periodInfo = {
+        startDate,
+        endDate: today,
+        dateRange: formatShortDate(today),
+        periodDays: 1,
+        label: 'Günlük'
+      };
     } else if (period === 'weekly') {
       const d = new Date(now);
-      d.setDate(d.getDate() - 7);
+      d.setDate(d.getDate() - 6); // Bugün dahil geriye doğru tam 7 gün
       startDate = getLocalDateString(d);
+      periodInfo = {
+        startDate,
+        endDate: today,
+        dateRange: `${formatShortDate(startDate)} - ${formatShortDate(today)}`,
+        periodDays: 7,
+        label: 'Son 7 Gün'
+      };
     } else {
       const d = new Date(now);
-      d.setDate(d.getDate() - 30);
+      d.setDate(d.getDate() - 29); // Bugün dahil geriye doğru tam 30 gün
       startDate = getLocalDateString(d);
+      periodInfo = {
+        startDate,
+        endDate: today,
+        dateRange: `${formatShortDate(startDate)} - ${formatShortDate(today)}`,
+        periodDays: 30,
+        label: 'Son 30 Gün'
+      };
     }
 
     let q;
@@ -238,7 +271,7 @@ export async function getLeaderboard(period = 'daily') {
       q = fs.query(
         fs.collection(db, 'scores'),
         fs.where('date', '>=', startDate),
-        fs.limit(400)
+        fs.limit(500)
       );
     }
 
@@ -246,6 +279,16 @@ export async function getLeaderboard(period = 'daily') {
     const scores = [];
     snapshot.forEach(doc => {
       const d = doc.data();
+      if (!d || !d.date) return;
+
+      // KESİN DÖNEM FİLTRESİ:
+      // Yalnızca belirlenen dönem penceresindeki (örn: son 7 veya 30 gün) oyunlar dahil edilir
+      if (period === 'daily') {
+        if (d.date !== startDate) return;
+      } else {
+        if (d.date < startDate || d.date > today) return;
+      }
+
       const rawGuesses = Number(d.guesses) || (d.won ? 0 : 6);
       const rawTime = Number(d.time) || 0;
       const points = d.won ? (d.points || calculateGameScore(true, rawGuesses, rawTime)) : 0;
@@ -308,23 +351,34 @@ export async function getLeaderboard(period = 'daily') {
 
         return a.time - b.time;
       });
+
+      validScores.periodInfo = periodInfo;
       return validScores;
     }
 
-    // Haftalık ve Aylık için kümülatif lig analitiği
-    return aggregateScores(validScores);
+    // Haftalık ve Aylık için dönemsel lig analitiği
+    const aggregated = aggregateScores(validScores, periodInfo.periodDays);
+    aggregated.periodInfo = periodInfo;
+    return aggregated;
   } catch (err) {
     console.error('Sıralama yükleme hatası:', err);
     return [];
   }
 }
 
-function aggregateScores(scores) {
+function aggregateScores(scores, periodDays = 7) {
   const playerMap = new Map();
+  const seenUserDays = new Set();
 
   for (const s of scores) {
     if (s.guesses < 1 || s.guesses > 6) continue;
     const uid = s.uid || s.playerName || 'anon';
+
+    // Güvenlik ve Tutarlılık: Aynı kullanıcının aynı güne ait birden fazla skoru varsa mükerrer sayılmasın
+    const dayKey = `${uid}_${s.date}`;
+    if (s.date && seenUserDays.has(dayKey)) continue;
+    if (s.date) seenUserDays.add(dayKey);
+
     if (!playerMap.has(uid)) {
       playerMap.set(uid, {
         uid,
@@ -395,15 +449,25 @@ export function renderLeaderboard(scores, period) {
   }
 
   const uid = getUid();
+  const periodInfo = scores.periodInfo || {};
   const isDaily = period === 'daily';
+  const isWeekly = period === 'weekly';
   const isYesterday = isDaily && scores.some(s => s.isYesterday);
+  const maxDays = isWeekly ? 7 : (isDaily ? 1 : 30);
 
-  // Bilgi rozeti (Puanlama Kuralı)
-  const ruleText = isDaily
-    ? (isYesterday
-        ? '📅 <strong>Dünün Şampiyonları</strong> (Bugünkü kelimeyi henüz kimse tamamlamadı - ilk siz olun!)'
-        : '⚡ <strong>Puan:</strong> Tahmin Başarısı (Maks 600) + Hız Bonusu (Maks 400)')
-    : '🏆 <strong>Lig:</strong> Toplam Lig Puanı & Galibiyet Yüzdesi esas alınır';
+  // Bilgi rozeti (Puanlama Kuralı & Tarih Penceresi)
+  let ruleText = '';
+  if (isDaily) {
+    ruleText = isYesterday
+      ? '📅 <strong>Dünün Şampiyonları</strong> (Bugünkü kelimeyi henüz kimse tamamlamadı - ilk siz olun!)'
+      : '⚡ <strong>Günlük Puan:</strong> Tahmin Başarısı (Maks 600) + Hız Bonusu (Maks 400)';
+  } else if (isWeekly) {
+    const rangeStr = periodInfo.dateRange || 'Son 7 Gün';
+    ruleText = `📅 <strong>Haftalık Sıralama (${rangeStr}):</strong> Yalnızca son 7 günün oyunları esas alınır`;
+  } else {
+    const rangeStr = periodInfo.dateRange || 'Son 30 Gün';
+    ruleText = `📅 <strong>Aylık Sıralama (${rangeStr}):</strong> Yalnızca son 30 günün oyunları esas alınır`;
+  }
 
   let html = `<div class="leaderboard-rule-badge">${ruleText}</div>`;
 
@@ -414,7 +478,7 @@ export function renderLeaderboard(scores, period) {
     const p3 = scores[2] || null;
 
     const getPodiumSub = (p) => {
-      if (!isDaily) return `${p.games} Oyun • %${p.winRate} Galibiyet`;
+      if (!isDaily) return `${p.games}/${maxDays} Gün • %${p.winRate} Galibiyet`;
       return p.won ? `${p.guesses} Deneme • ${formatLeaderboardTime(p.time)}` : 'Bilemedi ❌';
     };
 
@@ -456,7 +520,7 @@ export function renderLeaderboard(scores, period) {
         <span class="lb-tag">⏱️ ${formatLeaderboardTime(s.time)}</span>
       `
       : `
-        <span class="lb-tag">🎮 ${s.games} Oyun</span>
+        <span class="lb-tag">🎮 ${s.games}/${maxDays} Gün</span>
         <span class="lb-tag">📈 %${s.winRate} Galibiyet</span>
       `;
 
