@@ -19,7 +19,7 @@ import {
   submitScore, getLeaderboard, renderLeaderboard, setupLeaderboardTabs,
   calculateGameScore, fetchUserDailyScore
 } from './leaderboard.js';
-import { getStats, updateStats, renderStats } from './stats.js';
+import { getStats, updateStats, renderStats, syncUserStatsFromCloud } from './stats.js';
 import { generateShareText, shareResult, shareToWhatsApp } from './share.js';
 import { getLocalDateString } from './date-utils.js';
 import { recordDeviceSession } from './device.js';
@@ -201,6 +201,8 @@ async function handleAuthChange(user) {
     localStorage.setItem(NAME_KEY, playerName);
     await cleanupCorruptedCloudScore(user);
     recordDeviceSession(user);
+    // İstatistikleri arka planda buluttan eşitle
+    syncUserStatsFromCloud(user).catch(e => console.warn('İstatistik senkron uyarısı:', e));
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);
@@ -439,11 +441,14 @@ function onGameWon(guessCount) {
 
   if (currentMode === 'daily') {
     showDailyCountdownBanner();
-    const stats = updateStats(true, guessCount, elapsed);
+    const stats = updateStats(true, guessCount, elapsed, score);
 
     setTimeout(() => {
       showResultModal(true, guessCount, elapsed, game.targetWord, score);
-      renderStats(document.getElementById('stats-content'), stats, guessCount);
+      renderStats(document.getElementById('stats-content'), stats, {
+        lastGuessCount: guessCount,
+        currentUser: getCurrentUser()
+      });
       updateResultModalForMode();
     }, 1800);
 
@@ -466,11 +471,14 @@ function onGameLost(targetWord) {
 
   if (currentMode === 'daily') {
     showDailyCountdownBanner();
-    const stats = updateStats(false, guessCount, elapsed);
+    const stats = updateStats(false, guessCount, elapsed, 0);
 
     setTimeout(() => {
       showResultModal(false, guessCount, elapsed, targetWord);
-      renderStats(document.getElementById('stats-content'), stats);
+      renderStats(document.getElementById('stats-content'), stats, {
+        lastGuessCount: null,
+        currentUser: getCurrentUser()
+      });
       updateResultModalForMode();
     }, 2500);
 
@@ -656,7 +664,8 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
     try {
       const stats = getStats();
       if (stats.lastPlayedDate !== today) {
-        updateStats(game.won, game.guesses.length, game.getElapsedSeconds());
+        const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : 0;
+        updateStats(game.won, game.guesses.length, game.getElapsedSeconds(), score);
       }
     } catch (e) {
       console.warn('Yerel istatistik senkronizasyon uyarısı:', e);
@@ -747,11 +756,33 @@ function setupButtons() {
   });
 
   // Stats
-  document.getElementById('btn-stats')?.addEventListener('click', () => {
-    const stats = getStats();
+  const openStatsWithData = async () => {
+    const container = document.getElementById('stats-content');
+    const user = getCurrentUser();
     const lastGuess = (game?.won && currentMode === 'daily') ? game.guesses.length : null;
-    renderStats(document.getElementById('stats-content'), stats, lastGuess);
+
+    // 1. Önce anında yerel veriyi göster (0 gecikme ile hızlı açılış)
+    let stats = getStats();
+    renderStats(container, stats, { lastGuessCount: lastGuess, currentUser: user });
     openModal('stats-modal');
+
+    // 2. Google ile giriş yapılmışsa buluttan doğrulanmış istatistikleri çek ve güncelle
+    if (isSignedIn() && user) {
+      try {
+        const syncedStats = await syncUserStatsFromCloud(user);
+        if (syncedStats) {
+          renderStats(container, syncedStats, { lastGuessCount: lastGuess, currentUser: user });
+        }
+      } catch (err) {
+        console.warn('Buluttan istatistik senkronizasyon uyarısı:', err);
+      }
+    }
+  };
+
+  document.getElementById('btn-stats')?.addEventListener('click', openStatsWithData);
+  document.getElementById('btn-result-stats')?.addEventListener('click', () => {
+    closeModal('result-modal');
+    openStatsWithData();
   });
 
   // Leaderboard
