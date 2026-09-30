@@ -86,19 +86,60 @@ async function init() {
   // Load initial daily game
   await loadDailyGame();
 
-  // EVA duyuru modalını bir kez göster
-  showEvaModalIfNeeded();
+  // EVA duyuru / değerlendirme modalını kontrol et
+  await showEvaModalIfNeeded(getCurrentUser());
 }
 
 // ===========================
 // EVA Duyuru & Değerlendirme
 // ===========================
-const EVA_MODAL_KEY = 'celimeluk_eva_seen_2026_09_30';
-const EVA_RATING_KEY = 'celimeluk_eva_rating_2026_09_30';
-
 const RATING_LABELS = ['', 'Çok Zayıf 😞', 'Fena Değil 🙂', 'İyi 👍', 'Çok İyi 🌟', 'Mükemmel! 🏆'];
 
-async function saveRatingToDatabase(ratingVal) {
+function getEvaRatedKey(user = getCurrentUser()) {
+  const uid = user ? user.uid : getUid();
+  if (uid) return `celimeluk_eva_rated_${uid}`;
+  const deviceId = getDeviceId();
+  return `celimeluk_eva_rated_guest_${deviceId}`;
+}
+
+async function checkAccountHasRated(user = getCurrentUser()) {
+  // Eski tekil global anahtarları temizle (hesaplar arası tam izolasyon için)
+  try {
+    localStorage.removeItem('celimeluk_eva_seen_2026_09_30');
+    localStorage.removeItem('celimeluk_eva_rating_2026_09_30');
+  } catch (e) {}
+
+  const localKey = getEvaRatedKey(user);
+  if (localStorage.getItem(localKey) === 'true') {
+    return true;
+  }
+
+  // Google ile giriş yapmış hesap için Firestore buluttan kontrol et
+  const uid = user ? user.uid : getUid();
+  if (uid) {
+    try {
+      const ready = await ensureFirebaseReady();
+      if (ready) {
+        const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
+        const db = getDb();
+        if (db) {
+          const ratingRef = fs.doc(db, 'ratings', uid);
+          const snap = await fs.getDoc(ratingRef);
+          if (snap.exists() && Number(snap.data()?.rating) >= 1) {
+            localStorage.setItem(localKey, 'true');
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Değerlendirme bulut kontrolü:', e);
+    }
+  }
+
+  return false;
+}
+
+async function saveRatingToDatabase(ratingVal, targetUser = getCurrentUser()) {
   if (!ratingVal || ratingVal < 1 || ratingVal > 5) return;
   try {
     const ready = await ensureFirebaseReady();
@@ -108,7 +149,7 @@ async function saveRatingToDatabase(ratingVal) {
     const db = getDb();
     if (!db) return;
 
-    const user = getCurrentUser();
+    const user = targetUser || getCurrentUser();
     const deviceId = getDeviceId();
     const deviceInfo = getDeviceInfo();
     const date = getLocalDateString();
@@ -138,36 +179,24 @@ async function saveRatingToDatabase(ratingVal) {
 
     await fs.setDoc(ratingRef, payload, { merge: true });
     console.log('Değerlendirme Firestore ratings koleksiyonuna kaydedildi:', docId, payload);
+
+    // Bu hesaba yerel olarak kalıcı "oy verdi" işaretini koy
+    localStorage.setItem(getEvaRatedKey(user), 'true');
   } catch (err) {
     console.warn('Değerlendirme Firestore kaydetme uyarısı:', err);
   }
 }
 
-function showEvaModalIfNeeded() {
-  const alreadySeen = localStorage.getItem(EVA_MODAL_KEY);
-  if (alreadySeen) return;
+let evaListenersSetup = false;
+let currentSelectedRating = 0;
+
+function setupEvaModalListeners() {
+  if (evaListenersSetup) return;
+  evaListenersSetup = true;
 
   const modal = document.getElementById('eva-modal');
   if (!modal) return;
 
-  // Kullanıcı adını yerleştir
-  const currentUser = getCurrentUser();
-  const name = currentUser?.displayName?.split(' ')[0] ||
-               localStorage.getItem('celimeluk_player_name') ||
-               'Oyuncu';
-  const nameEl = document.getElementById('eva-user-name');
-  if (nameEl) nameEl.textContent = name;
-
-  // Daha önce verilmiş puan varsa göster
-  const savedRating = localStorage.getItem(EVA_RATING_KEY);
-  if (savedRating) {
-    const parsed = parseInt(savedRating, 10);
-    applyEvaRating(parsed, false);
-    const closeBtn = document.getElementById('eva-close-btn');
-    if (closeBtn) closeBtn.disabled = false;
-  }
-
-  // Yıldız etkileşimleri
   const starsContainer = document.getElementById('eva-stars');
   if (starsContainer) {
     const stars = starsContainer.querySelectorAll('.eva-star');
@@ -187,37 +216,88 @@ function showEvaModalIfNeeded() {
       // Seçim
       star.addEventListener('click', () => {
         const val = parseInt(star.dataset.value, 10);
-        localStorage.setItem(EVA_RATING_KEY, val);
+        currentSelectedRating = val;
         applyEvaRating(val, true);
         const closeBtn = document.getElementById('eva-close-btn');
         if (closeBtn) closeBtn.disabled = false;
-        // Firestore'a değerlendirmeyi kaydet
-        saveRatingToDatabase(val);
       });
     });
   }
 
-  // Kapat butonu ("Oyuna Başla")
+  // Kapat / Onayla butonu ("Oyuna Başla") - Yalnızca oy verildiyse aktif
   const closeBtn = document.getElementById('eva-close-btn');
   if (closeBtn) {
-    closeBtn.addEventListener('click', () => {
-      const ratingVal = parseInt(localStorage.getItem(EVA_RATING_KEY) || '0', 10);
-      if (ratingVal > 0) {
-        saveRatingToDatabase(ratingVal);
+    closeBtn.addEventListener('click', async () => {
+      const user = getCurrentUser();
+      if (currentSelectedRating >= 1 && currentSelectedRating <= 5) {
+        // Bu hesaba kalıcı olarak "değerlendirdi" işaretini koy
+        localStorage.setItem(getEvaRatedKey(user), 'true');
+        saveRatingToDatabase(currentSelectedRating, user);
       }
-      localStorage.setItem(EVA_MODAL_KEY, '1');
       modal.close();
-      // İmzalı değil ise isim modalı açılsın
       if (!isSignedIn()) {
         setTimeout(() => showNameModal(), 400);
       }
     });
   }
 
-  // Modal dışına tıklamayı engelle (sadece butonla kapansın)
-  modal.addEventListener('cancel', e => e.preventDefault());
+  // "Daha sonra" butonu - Oy vermeden kapatır, bir sonraki oyuna girişte tekrar çıkar
+  const skipBtn = document.getElementById('eva-skip-btn');
+  if (skipBtn) {
+    skipBtn.addEventListener('click', () => {
+      modal.close();
+      if (!isSignedIn()) {
+        setTimeout(() => showNameModal(), 400);
+      }
+    });
+  }
 
-  setTimeout(() => modal.showModal(), 600);
+  modal.addEventListener('cancel', e => e.preventDefault());
+}
+
+let isEvaModalOpening = false;
+
+async function showEvaModalIfNeeded(targetUser = getCurrentUser()) {
+  setupEvaModalListeners();
+
+  const user = (targetUser !== undefined) ? targetUser : getCurrentUser();
+  const modal = document.getElementById('eva-modal');
+  if (!modal) return;
+
+  const hasRated = await checkAccountHasRated(user);
+
+  if (hasRated) {
+    // Bu hesap zaten oy vermiş, modal açıksa kapat ve bir daha çıkarma
+    if (modal.open) {
+      modal.close();
+    }
+    return;
+  }
+
+  // Bu hesap henüz oy vermemiş!
+  // İsmi hesaba özel olarak güncelle
+  const name = user?.displayName?.trim()?.split(/\s+/)[0] ||
+               localStorage.getItem(NAME_KEY) ||
+               'Oyuncu';
+  const nameEl = document.getElementById('eva-user-name');
+  if (nameEl) nameEl.textContent = name;
+
+  // Yıldızları temizle ve butonu pasif yap
+  currentSelectedRating = 0;
+  resetEvaModalStars();
+  const closeBtn = document.getElementById('eva-close-btn');
+  if (closeBtn) closeBtn.disabled = true;
+
+  // Modalı ekranda göster
+  if (!modal.open && !isEvaModalOpening) {
+    isEvaModalOpening = true;
+    setTimeout(() => {
+      isEvaModalOpening = false;
+      if (!modal.open) {
+        modal.showModal();
+      }
+    }, 450);
+  }
 }
 
 function applyEvaRating(val, animate) {
@@ -237,11 +317,15 @@ function applyEvaRating(val, animate) {
   if (labelEl) labelEl.textContent = RATING_LABELS[val] || '';
 }
 
-// Google ile giriş yapılmamışsa giriş modalını göster (EVA modalı gizlemiyorsa)
-function maybeShowNameModal() {
-  if (!isSignedIn() && !document.getElementById('eva-modal')?.open) {
-    setTimeout(() => showNameModal(), 500);
+function resetEvaModalStars() {
+  const starsContainer = document.getElementById('eva-stars');
+  if (starsContainer) {
+    starsContainer.querySelectorAll('.eva-star').forEach(s => {
+      s.classList.remove('selected', 'hovered', 'pulse');
+    });
   }
+  const labelEl = document.getElementById('eva-rating-label');
+  if (labelEl) labelEl.textContent = '';
 }
 
 // Clean up any previously created corrupted 0-guess scores from Firestore
@@ -306,17 +390,14 @@ async function handleAuthChange(user) {
     recordDeviceSession(user);
     // İstatistikleri arka planda buluttan eşitle
     syncUserStatsFromCloud(user).catch(e => console.warn('İstatistik senkron uyarısı:', e));
-
-    // Daha önce verilmiş değerlendirme varsa giriş yapan hesaba da bağla
-    const pendingRating = localStorage.getItem(EVA_RATING_KEY);
-    if (pendingRating) {
-      saveRatingToDatabase(parseInt(pendingRating, 10)).catch(() => {});
-    }
+    // Bu hesap için duyuru / değerlendirme modalını kontrol et
+    showEvaModalIfNeeded(user);
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);
     localStorage.removeItem('celimeluk_game_guest');
     localStorage.removeItem('celimeluk_game');
+    showEvaModalIfNeeded(null);
   }
   updateAuthUI(user);
   updatePlayerBadge();
@@ -1034,6 +1115,9 @@ function setupButtons() {
           await loadDailyGame();
         }
 
+        // Giriş yapan hesap henüz oy vermemişse modalı göster
+        await showEvaModalIfNeeded(user);
+
         if (game && game.isGameOver) {
           showToast(`Hoş geldin, ${playerName}! Bugünkü oyununuz senkronize edildi. 👋`, 4000);
         } else {
@@ -1072,6 +1156,8 @@ function setupButtons() {
     if (currentMode === 'daily') {
       await loadDailyGame();
     }
+    // Misafir hesabı henüz oy vermemişse modalı göster
+    await showEvaModalIfNeeded(null);
   });
 
   // Continue button in profile view
