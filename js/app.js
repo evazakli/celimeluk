@@ -154,6 +154,8 @@ async function handleAuthChange(user) {
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);
+    localStorage.removeItem('celimeluk_game_guest');
+    localStorage.removeItem('celimeluk_game');
   }
   updateAuthUI(user);
   updatePlayerBadge();
@@ -257,13 +259,21 @@ async function loadDailyGame() {
     closeModal('result-modal');
     timerEl.textContent = '00:00.0';
 
+    // Her çağrıda önce in-memory oyun nesnesini sıfırla
+    game = new Game(dayInfo.word);
+
     const currentUser = getCurrentUser();
     if (currentUser) {
       playerName = currentUser.displayName || 'Oyuncu';
       localStorage.setItem(NAME_KEY, playerName);
     } else {
+      // Misafir modu: Hiçbir tahmin veya eski oyun yüklenmez. Tahta tertemiz boş kalır.
       playerName = '';
       localStorage.removeItem(NAME_KEY);
+      localStorage.removeItem('celimeluk_game_guest');
+      localStorage.removeItem('celimeluk_game');
+      updateModeIndicator();
+      return;
     }
 
     const savedGame = loadGameState(currentUser);
@@ -277,7 +287,7 @@ async function loadDailyGame() {
 
     if (isCorruptedBugGame) {
       console.warn('Bozuk yerel oyun durumu tespit edildi (bugün tamamlanmamış), sıfırlanıyor.');
-      localStorage.removeItem(getStorageKey(currentUser));
+      localStorage.removeItem(`celimeluk_game_${currentUser.uid}`);
       localStorage.removeItem('celimeluk_game');
       game = new Game(dayInfo.word);
       hideDailyCountdownBanner();
@@ -604,6 +614,16 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
           const sessionSnap = await fs.getDoc(sessionRef);
           if (sessionSnap.exists()) {
             const sData = sessionSnap.data();
+
+            // Geçersiz / sızmış hayalet oturum koruması:
+            // Eğer oturum 'completed_won' veya won=true olarak işaretlenmişse fakat scores koleksiyonunda
+            // geçerli bir skor kaydı yoksa, bu oturum çapraz hesap sızıntısıdır. Silinmeli ve yüklenmemelidir.
+            if (sData && (sData.won || sData.status === 'completed_won')) {
+              console.warn('Geçersiz hayalet oturum temizleniyor:', `${uid}_${today}`);
+              try { await fs.deleteDoc(sessionRef); } catch (e) {}
+              return false;
+            }
+
             if (sData && sData.targetWord === dayInfo.word &&
                 Array.isArray(sData.guesses) && sData.guesses.length > 0) {
               const currentGuessesLen = (game && game.guesses) ? game.guesses.length : 0;
@@ -754,10 +774,12 @@ async function patchCloudScoreGameState(uid, date, gameState) {
 // --- Game State Persistence (Daily only) ---
 function saveGameState() {
   if (currentMode !== 'daily' || !game) return;
+  const uid = getUid();
+  if (!uid) return; // Misafir modunda yerel hafızaya tahmin kaydedilmez
   try {
-    const key = getStorageKey();
+    const key = `celimeluk_game_${uid}`;
     const data = game.serialize();
-    data.uid = getUid() || null;
+    data.uid = uid;
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
     console.error('Oyun durumu kaydedilemedi:', e);
@@ -767,25 +789,25 @@ function saveGameState() {
 function loadGameState(user = getCurrentUser()) {
   try {
     const currentUid = user ? user.uid : getUid();
-    const key = getStorageKey(user);
+    // Misafir (oturum açılmamış) modda hiçbir eski oyun yüklenmez; tahta tertemizdir.
+    if (!currentUid) {
+      localStorage.removeItem('celimeluk_game_guest');
+      localStorage.removeItem('celimeluk_game');
+      return null;
+    }
+
+    const key = `celimeluk_game_${currentUid}`;
     const stored = localStorage.getItem(key);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (currentUid && parsed.uid && parsed.uid !== currentUid) {
+      if (parsed.uid && parsed.uid !== currentUid) {
         return null;
       }
       return parsed;
     }
 
-    // Legacy key migration & cleanup:
-    const legacy = localStorage.getItem('celimeluk_game');
-    if (legacy) {
-      localStorage.removeItem('celimeluk_game');
-      if (!currentUid) {
-        localStorage.setItem('celimeluk_game_guest', legacy);
-        return JSON.parse(legacy);
-      }
-    }
+    // Eski tekil anahtarı tamamen sil
+    localStorage.removeItem('celimeluk_game');
     return null;
   } catch (e) {
     console.error('Oyun durumu yüklenemedi:', e);
@@ -938,6 +960,8 @@ function setupButtons() {
     await signOutUser();
     playerName = '';
     localStorage.removeItem(NAME_KEY);
+    localStorage.removeItem('celimeluk_game_guest');
+    localStorage.removeItem('celimeluk_game');
     showToast('Çıkış yapıldı.');
     updateAuthUI(null);
     updatePlayerBadge();
