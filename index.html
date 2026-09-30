@@ -367,7 +367,47 @@
     </div>
   </dialog>
 
+  <!-- EVA Duyuru / Değerlendirme Modalı -->
+  <dialog id="eva-modal" class="modal eva-modal-dialog">
+    <div class="modal-content eva-modal-content">
+      <!-- Dekoratif üst şerit -->
+      <div class="eva-modal-topbar">
+        <span class="eva-modal-logo">Ç</span>
+      </div>
+      <div class="eva-modal-body">
+        <p class="eva-greeting">Merhaba <strong id="eva-user-name">Oyuncu</strong>,</p>
+        <p class="eva-message">
+          Çelimeluk uzun zamandır sizlerin geri dönüşleri ile hatalarını düzeltti,
+          arayüzünü güncelledi, daha adil bir ortam sağlamaya çalıştı.
+        </p>
+        <p class="eva-message">
+          Geri dönüşleriniz için teşekkürler. Bir süre yeni bir özellik gelmeyecektir.
+          Olgunlaşmış Çelimeluk'un keyfini sürün.
+        </p>
+        <p class="eva-date">30/09/2026</p>
+        <p class="eva-signature">— EVA</p>
+
+        <div class="eva-divider"></div>
+
+        <!-- 5 Yıldız Değerlendirme -->
+        <div class="eva-rating-section">
+          <p class="eva-rating-title">Çelimeluk'u değerlendirin</p>
+          <div class="eva-stars" id="eva-stars" role="group" aria-label="Yıldız değerlendirmesi">
+            <button class="eva-star" data-value="1" aria-label="1 yıldız">★</button>
+            <button class="eva-star" data-value="2" aria-label="2 yıldız">★</button>
+            <button class="eva-star" data-value="3" aria-label="3 yıldız">★</button>
+            <button class="eva-star" data-value="4" aria-label="4 yıldız">★</button>
+            <button class="eva-star" data-value="5" aria-label="5 yıldız">★</button>
+          </div>
+          <p class="eva-rating-label" id="eva-rating-label"></p>
+        </div>
+
+        <button id="eva-close-btn" class="eva-close-btn" disabled>Oyuna Başla</button>
+      </div>
+    </div>
+  </dialog>
+
   <canvas id="confetti-canvas"></canvas>
-  <script type="module" src="js/app.js?v=3.2"></script>
+  <script type="module" src="js/app.js?v=3.3"></script>
 </body>
 </html>

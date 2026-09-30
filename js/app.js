@@ -86,8 +86,108 @@ async function init() {
   // Load initial daily game
   await loadDailyGame();
 
-  // Google ile giriş yapılmamışsa giriş modalını göster
-  if (!isSignedIn()) {
+  // EVA duyuru modalını bir kez göster
+  showEvaModalIfNeeded();
+}
+
+// ===========================
+// EVA Duyuru & Değerlendirme
+// ===========================
+const EVA_MODAL_KEY = 'celimeluk_eva_seen_2026_09_30';
+const EVA_RATING_KEY = 'celimeluk_eva_rating_2026_09_30';
+
+const RATING_LABELS = ['', 'Çok Zayıf 😞', 'Fena Değil 🙂', 'İyi 👍', 'Çok İyi 🌟', 'Mükemmel! 🏆'];
+
+function showEvaModalIfNeeded() {
+  const alreadySeen = localStorage.getItem(EVA_MODAL_KEY);
+  if (alreadySeen) return;
+
+  const modal = document.getElementById('eva-modal');
+  if (!modal) return;
+
+  // Kullanıcı adını yerleştir
+  const currentUser = getCurrentUser();
+  const name = currentUser?.displayName?.split(' ')[0] ||
+               localStorage.getItem('celimeluk_player_name') ||
+               'Oyuncu';
+  const nameEl = document.getElementById('eva-user-name');
+  if (nameEl) nameEl.textContent = name;
+
+  // Daha önce verilmiş puan varsa göster
+  const savedRating = localStorage.getItem(EVA_RATING_KEY);
+  if (savedRating) {
+    applyEvaRating(parseInt(savedRating, 10), false);
+    const closeBtn = document.getElementById('eva-close-btn');
+    if (closeBtn) closeBtn.disabled = false;
+  }
+
+  // Yıldız etkileşimleri
+  const starsContainer = document.getElementById('eva-stars');
+  if (starsContainer) {
+    const stars = starsContainer.querySelectorAll('.eva-star');
+
+    // Hover efekti
+    stars.forEach(star => {
+      star.addEventListener('mouseenter', () => {
+        const val = parseInt(star.dataset.value, 10);
+        stars.forEach((s, i) => {
+          s.classList.toggle('hovered', i < val);
+        });
+      });
+      star.addEventListener('mouseleave', () => {
+        stars.forEach(s => s.classList.remove('hovered'));
+      });
+
+      // Seçim
+      star.addEventListener('click', () => {
+        const val = parseInt(star.dataset.value, 10);
+        localStorage.setItem(EVA_RATING_KEY, val);
+        applyEvaRating(val, true);
+        const closeBtn = document.getElementById('eva-close-btn');
+        if (closeBtn) closeBtn.disabled = false;
+      });
+    });
+  }
+
+  // Kapat butonu
+  const closeBtn = document.getElementById('eva-close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      localStorage.setItem(EVA_MODAL_KEY, '1');
+      modal.close();
+      // İmzalı değil ise isim modalı açılsın
+      if (!isSignedIn()) {
+        setTimeout(() => showNameModal(), 400);
+      }
+    });
+  }
+
+  // Modal dışına tıklamayı engelle (sadece butonla kapansın)
+  modal.addEventListener('cancel', e => e.preventDefault());
+
+  setTimeout(() => modal.showModal(), 600);
+}
+
+function applyEvaRating(val, animate) {
+  const starsContainer = document.getElementById('eva-stars');
+  const labelEl = document.getElementById('eva-rating-label');
+  if (!starsContainer) return;
+
+  const stars = starsContainer.querySelectorAll('.eva-star');
+  stars.forEach((s, i) => {
+    s.classList.toggle('selected', i < val);
+    if (animate && i === val - 1) {
+      s.classList.remove('pulse');
+      void s.offsetWidth; // reflow
+      s.classList.add('pulse');
+    }
+  });
+  if (labelEl) labelEl.textContent = RATING_LABELS[val] || '';
+}
+
+// Google ile giriş yapılmamışsa giriş modalını göster (EVA modalı gizlemiyorsa)
+function maybeShowNameModal() {
+  if (!isSignedIn() && !document.getElementById('eva-modal')?.open) {
     setTimeout(() => showNameModal(), 500);
   }
 }
