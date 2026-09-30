@@ -780,10 +780,6 @@ function setupButtons() {
   };
 
   document.getElementById('btn-stats')?.addEventListener('click', openStatsWithData);
-  document.getElementById('btn-result-stats')?.addEventListener('click', () => {
-    closeModal('result-modal');
-    openStatsWithData();
-  });
 
   // Leaderboard
   const openLeaderboardWithData = async () => {
