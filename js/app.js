@@ -23,6 +23,7 @@ import { getStats, updateStats, renderStats, syncUserStatsFromCloud } from './st
 import { generateShareText, shareResult, shareToWhatsApp } from './share.js';
 import { getLocalDateString } from './date-utils.js';
 import { recordDeviceSession } from './device.js';
+import { trackGameSessionProgress, setupSessionLifecycleListeners } from './session.js';
 
 // --- Constants ---
 const STORAGE_KEY = 'celimeluk_game';
@@ -52,6 +53,7 @@ async function init() {
   setupModalCloseButtons();
   setupButtons();
   setupModeToggle();
+  setupSessionLifecycleListeners(() => game, () => currentMode);
 
   // Setup leaderboard tabs
   setupLeaderboardTabs(async (period) => {
@@ -426,6 +428,7 @@ function submitGuess() {
   // Save state (only for daily)
   if (currentMode === 'daily') {
     saveGameState();
+    trackGameSessionProgress(game, { action: 'guess_submitted' });
   }
 }
 
@@ -440,6 +443,7 @@ function onGameWon(guessCount) {
   const score = calculateGameScore(true, guessCount, elapsed);
 
   if (currentMode === 'daily') {
+    trackGameSessionProgress(game, { action: 'game_won' });
     showDailyCountdownBanner();
     const stats = updateStats(true, guessCount, elapsed, score);
 
@@ -470,6 +474,7 @@ function onGameLost(targetWord) {
   showToast(targetWord.toLocaleUpperCase('tr-TR'), 3000);
 
   if (currentMode === 'daily') {
+    trackGameSessionProgress(game, { action: 'game_lost' });
     showDailyCountdownBanner();
     const stats = updateStats(false, guessCount, elapsed, 0);
 
