@@ -1,8 +1,11 @@
 // Çelimeluk - Modern & Authoritative Statistics (Cloud Synced & Local Safe)
 import { getLocalDateString, getDaysBetweenDates } from './date-utils.js';
-import { getDb, ensureFirebaseReady } from './firebase-config.js';
+import { getDb, ensureFirebaseReady, getCurrentUser, getUid } from './firebase-config.js';
 
-const STATS_KEY = 'celimeluk_stats';
+export function getStatsKey(user = getCurrentUser()) {
+  const uid = user ? user.uid : getUid();
+  return uid ? `celimeluk_stats_${uid}` : 'celimeluk_stats_guest';
+}
 
 export function getDefaultStats() {
   return {
@@ -72,9 +75,16 @@ export function getEffectiveStats(rawStats) {
   return s;
 }
 
-export function getStats() {
+export function getStats(user = getCurrentUser()) {
   try {
-    const stored = localStorage.getItem(STATS_KEY);
+    const key = getStatsKey(user);
+    let stored = localStorage.getItem(key);
+    // Legacy migration: If guest and legacy celimeluk_stats exists, migrate it
+    if (!stored && !user && localStorage.getItem('celimeluk_stats')) {
+      stored = localStorage.getItem('celimeluk_stats');
+      localStorage.setItem('celimeluk_stats_guest', stored);
+      localStorage.removeItem('celimeluk_stats');
+    }
     if (stored) {
       const parsed = JSON.parse(stored);
       return getEffectiveStats(parsed);
@@ -85,9 +95,10 @@ export function getStats() {
   return getEffectiveStats(getDefaultStats());
 }
 
-export function saveStats(stats) {
+export function saveStats(stats, user = getCurrentUser()) {
   try {
-    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+    const key = getStatsKey(user);
+    localStorage.setItem(key, JSON.stringify(stats));
   } catch (e) {
     console.error('Stats kaydetme hatası:', e);
   }
@@ -97,8 +108,8 @@ export function saveStats(stats) {
  * Updates stats when a game concludes.
  * Prevents double-counting if triggered multiple times on the same date.
  */
-export function updateStats(won, guessCount, elapsedSeconds, points = 0) {
-  const stats = getStats();
+export function updateStats(won, guessCount, elapsedSeconds, points = 0, user = getCurrentUser()) {
+  const stats = getStats(user);
   const today = getLocalDateString();
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
@@ -153,7 +164,7 @@ export function updateStats(won, guessCount, elapsedSeconds, points = 0) {
       stats.history = stats.history.slice(-30);
     }
 
-    saveStats(stats);
+    saveStats(stats, user);
   }
 
   return getEffectiveStats(stats);
@@ -193,7 +204,9 @@ export async function syncUserStatsFromCloud(user) {
     }
 
     if (snap.empty && !playerDoc) {
-      return getStats();
+      const emptyStats = getDefaultStats();
+      saveStats(emptyStats, user);
+      return getEffectiveStats(emptyStats);
     }
 
     // Skorları tarihe göre tekilleştir (mükerrer varsa kazananı veya yüksek puanlıyı al)
@@ -299,12 +312,12 @@ export async function syncUserStatsFromCloud(user) {
       lastSyncTimestamp: Date.now()
     };
 
-    saveStats(cloudStats);
+    saveStats(cloudStats, user);
     console.log('İstatistikler buluttan senkronize edildi:', cloudStats);
     return getEffectiveStats(cloudStats);
   } catch (err) {
     console.error('Bulut istatistik senkronizasyon hatası:', err);
-    return getStats();
+    return getStats(user);
   }
 }
 

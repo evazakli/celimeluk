@@ -11,7 +11,7 @@ import {
   startNextWordCountdown
 } from './ui.js';
 import {
-  initFirebase, isFirebaseConfigured, isReady as isFirebaseReady, getUid,
+  initFirebase, isFirebaseConfigured, isReady as isFirebaseReady, getUid, getDb,
   signInWithGoogle, signOutUser, onAuthChange, isSignedIn, getCurrentUser,
   getDisplayName, getPhotoURL, ensureFirebaseReady
 } from './firebase-config.js';
@@ -26,8 +26,12 @@ import { recordDeviceSession } from './device.js';
 import { trackGameSessionProgress, setupSessionLifecycleListeners } from './session.js';
 
 // --- Constants ---
-const STORAGE_KEY = 'celimeluk_game';
 const NAME_KEY = 'celimeluk_player_name';
+
+function getStorageKey(user = getCurrentUser()) {
+  const uid = user ? user.uid : getUid();
+  return uid ? `celimeluk_game_${uid}` : 'celimeluk_game_guest';
+}
 
 // --- State ---
 let game = null;
@@ -79,72 +83,8 @@ async function init() {
     }
   }
 
-  // Load Google user session
-  const currentUser = getCurrentUser();
-  if (currentUser) {
-    playerName = currentUser.displayName || 'Oyuncu';
-    localStorage.setItem(NAME_KEY, playerName);
-  } else {
-    playerName = '';
-    localStorage.removeItem(NAME_KEY);
-  }
-
-  // Check for saved local game
-  const savedGame = loadGameState();
-  const todayStr = getLocalDateString();
-  const currentStats = getStats();
-
-  // Self-heal: If local storage has a finished game for today, but currentStats.lastPlayedDate !== todayStr,
-  // it was fabricated by the previous bug (no legitimate game was ever finished today).
-  const isCorruptedBugGame = savedGame &&
-    savedGame.targetWord === dayInfo.word &&
-    savedGame.isGameOver &&
-    currentStats.lastPlayedDate !== todayStr;
-
-  if (isCorruptedBugGame) {
-    console.warn('Bozuk yerel oyun durumu tespit edildi (bugün tamamlanmamış), sıfırlanıyor.');
-    localStorage.removeItem(STORAGE_KEY);
-    game = new Game(dayInfo.word);
-    hideDailyCountdownBanner();
-  } else if (savedGame && savedGame.targetWord === dayInfo.word) {
-    // Restore existing daily game
-    game = Game.deserialize(savedGame);
-    restoreGameUI();
-
-    if (game.isGameOver) {
-      updateKeyboardColors(keyboardEl, game.letterStatuses);
-      showDailyCountdownBanner();
-      setTimeout(() => {
-        const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
-        showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
-      }, 500);
-    } else {
-      hideDailyCountdownBanner();
-      startTimer();
-    }
-  } else {
-    // New daily game
-    game = new Game(dayInfo.word);
-    hideDailyCountdownBanner();
-  }
-
-  updateModeIndicator();
-
-  // Çapraz Cihaz Kontrolü: Bu Google hesabıyla başka cihazda bugünkü kelime tamamlanmış mı?
-  if (currentMode === 'daily' && isSignedIn()) {
-    const synced = await syncWithCloudTodayGame(getCurrentUser(), { showToastOnSync: false });
-    if (synced && game && game.isGameOver) {
-      setTimeout(() => {
-        const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
-        showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
-      }, 500);
-    }
-  }
-
-  // Günlük oyun oturumunu Firestore game_sessions koleksiyonunda anlık eşitle
-  if (currentMode === 'daily' && game && game.guesses && game.guesses.length > 0) {
-    trackGameSessionProgress(game, { action: 'session_init' });
-  }
+  // Load initial daily game
+  await loadDailyGame();
 
   // Google ile giriş yapılmamışsa giriş modalını göster
   if (!isSignedIn()) {
@@ -189,7 +129,8 @@ async function cleanupCorruptedCloudScore(user) {
         }
 
         // Clean local state as well
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(getStorageKey(user));
+        localStorage.removeItem('celimeluk_game');
         game = new Game(dayInfo.word);
         resetBoard();
         hideDailyCountdownBanner();
@@ -217,9 +158,10 @@ async function handleAuthChange(user) {
   updateAuthUI(user);
   updatePlayerBadge();
 
-  // Oturum durumu değiştiğinde (Google ile giriş yapıldığında) buluttan bugünkü oyunu ara
-  if (currentMode === 'daily' && user) {
-    await syncWithCloudTodayGame(user, { showToastOnSync: true });
+  // Oturum durumu değiştiğinde (Giriş yapıldığında veya çıkış yapıldığında)
+  // oyun tahtasını ve durumunu ilgili kullanıcı/misafir hesabı için temizce yeniden yükle
+  if (currentMode === 'daily') {
+    await loadDailyGame();
   }
 }
 
@@ -302,44 +244,87 @@ function switchMode(mode) {
   updateModeIndicator();
 }
 
+let isLoadingDailyGame = false;
+
 async function loadDailyGame() {
-  dayInfo = getWordOfDay();
-  resetBoard();
-
-  const savedGame = loadGameState();
-  const todayStr = getLocalDateString();
-  const currentStats = getStats();
-
-  const isCorruptedBugGame = savedGame &&
-    savedGame.targetWord === dayInfo.word &&
-    savedGame.isGameOver &&
-    currentStats.lastPlayedDate !== todayStr;
-
-  if (isCorruptedBugGame) {
-    console.warn('Bozuk yerel oyun durumu tespit edildi (bugün tamamlanmamış), sıfırlanıyor.');
-    localStorage.removeItem(STORAGE_KEY);
-    game = new Game(dayInfo.word);
+  if (isLoadingDailyGame) return;
+  isLoadingDailyGame = true;
+  try {
+    dayInfo = getWordOfDay();
+    stopTimer();
+    resetBoard();
     hideDailyCountdownBanner();
+    closeModal('result-modal');
     timerEl.textContent = '00:00.0';
-  } else if (savedGame && savedGame.targetWord === dayInfo.word) {
-    game = Game.deserialize(savedGame);
-    restoreGameUI();
-    if (game.isGameOver) {
-      updateKeyboardColors(keyboardEl, game.letterStatuses);
-      showDailyCountdownBanner();
+
+    const currentUser = getCurrentUser();
+    if (currentUser) {
+      playerName = currentUser.displayName || 'Oyuncu';
+      localStorage.setItem(NAME_KEY, playerName);
     } else {
-      hideDailyCountdownBanner();
-      startTimer();
+      playerName = '';
+      localStorage.removeItem(NAME_KEY);
     }
-  } else {
-    game = new Game(dayInfo.word);
-    hideDailyCountdownBanner();
-    timerEl.textContent = '00:00.0';
-  }
 
-  // Çapraz cihaz kontrolü
-  if (isSignedIn()) {
-    await syncWithCloudTodayGame(getCurrentUser(), { showToastOnSync: false });
+    const savedGame = loadGameState(currentUser);
+    const todayStr = getLocalDateString();
+    const currentStats = getStats(currentUser);
+
+    const isCorruptedBugGame = savedGame &&
+      savedGame.targetWord === dayInfo.word &&
+      savedGame.isGameOver &&
+      currentStats.lastPlayedDate !== todayStr;
+
+    if (isCorruptedBugGame) {
+      console.warn('Bozuk yerel oyun durumu tespit edildi (bugün tamamlanmamış), sıfırlanıyor.');
+      localStorage.removeItem(getStorageKey(currentUser));
+      localStorage.removeItem('celimeluk_game');
+      game = new Game(dayInfo.word);
+      hideDailyCountdownBanner();
+      timerEl.textContent = '00:00.0';
+    } else if (savedGame && savedGame.targetWord === dayInfo.word) {
+      game = Game.deserialize(savedGame);
+      restoreGameUI();
+      if (game.isGameOver) {
+        updateKeyboardColors(keyboardEl, game.letterStatuses);
+        showDailyCountdownBanner();
+        setTimeout(() => {
+          const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
+          showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
+          updateResultModalForMode();
+        }, 500);
+      } else {
+        hideDailyCountdownBanner();
+        if (game.startTime) {
+          startTimer();
+        }
+      }
+    } else {
+      game = new Game(dayInfo.word);
+      hideDailyCountdownBanner();
+      timerEl.textContent = '00:00.0';
+    }
+
+    updateModeIndicator();
+
+    // Çapraz cihaz kontrolü
+    if (currentMode === 'daily' && isSignedIn()) {
+      const synced = await syncWithCloudTodayGame(getCurrentUser(), { showToastOnSync: false });
+      if (synced && game && game.isGameOver) {
+        setTimeout(() => {
+          const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
+          showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
+          updateResultModalForMode();
+        }, 500);
+      }
+    }
+
+    // Günlük oyun oturumunu Firestore game_sessions koleksiyonunda anlık eşitle
+    if (currentMode === 'daily' && game && game.guesses && game.guesses.length > 0 && isSignedIn()) {
+      trackGameSessionProgress(game, { action: 'session_init' });
+    }
+  } finally {
+    isLoadingDailyGame = false;
   }
 }
 
@@ -768,18 +753,40 @@ async function patchCloudScoreGameState(uid, date, gameState) {
 
 // --- Game State Persistence (Daily only) ---
 function saveGameState() {
-  if (currentMode !== 'daily') return;
+  if (currentMode !== 'daily' || !game) return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(game.serialize()));
+    const key = getStorageKey();
+    const data = game.serialize();
+    data.uid = getUid() || null;
+    localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
     console.error('Oyun durumu kaydedilemedi:', e);
   }
 }
 
-function loadGameState() {
+function loadGameState(user = getCurrentUser()) {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : null;
+    const currentUid = user ? user.uid : getUid();
+    const key = getStorageKey(user);
+    const stored = localStorage.getItem(key);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (currentUid && parsed.uid && parsed.uid !== currentUid) {
+        return null;
+      }
+      return parsed;
+    }
+
+    // Legacy key migration & cleanup:
+    const legacy = localStorage.getItem('celimeluk_game');
+    if (legacy) {
+      localStorage.removeItem('celimeluk_game');
+      if (!currentUid) {
+        localStorage.setItem('celimeluk_game_guest', legacy);
+        return JSON.parse(legacy);
+      }
+    }
+    return null;
   } catch (e) {
     console.error('Oyun durumu yüklenemedi:', e);
     return null;
@@ -898,15 +905,12 @@ function setupButtons() {
         updatePlayerBadge();
         closeModal('name-modal');
 
-        // Check if this Google account already completed today's game on another device
-        const synced = await syncWithCloudTodayGame(user, { showToastOnSync: false });
-        if (synced) {
+        if (currentMode === 'daily') {
+          await loadDailyGame();
+        }
+
+        if (game && game.isGameOver) {
           showToast(`Hoş geldin, ${playerName}! Bugünkü oyununuz senkronize edildi. 👋`, 4000);
-          setTimeout(() => {
-            const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
-            showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
-            updateResultModalForMode();
-          }, 350);
         } else {
           showToast(`Hoş geldin, ${playerName}! 👋`);
         }
@@ -934,12 +938,13 @@ function setupButtons() {
     await signOutUser();
     playerName = '';
     localStorage.removeItem(NAME_KEY);
-    // Güvenlik ve Adil Oyun: Günün kelimesi tahminleri oturum kapatıldığında ASLA silinmez.
-    // Böylece çıkış yapıp oyunu sıfırdan başlatma hilesi/açığı tamamen engellenir.
     showToast('Çıkış yapıldı.');
     updateAuthUI(null);
     updatePlayerBadge();
     closeModal('name-modal');
+    if (currentMode === 'daily') {
+      await loadDailyGame();
+    }
   });
 
   // Continue button in profile view
