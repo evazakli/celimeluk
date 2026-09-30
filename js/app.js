@@ -22,7 +22,7 @@ import {
 import { getStats, updateStats, renderStats, syncUserStatsFromCloud } from './stats.js';
 import { generateShareText, shareResult, shareToWhatsApp } from './share.js';
 import { getLocalDateString } from './date-utils.js';
-import { recordDeviceSession } from './device.js';
+import { recordDeviceSession, getDeviceId, getDeviceInfo } from './device.js';
 import { trackGameSessionProgress, setupSessionLifecycleListeners } from './session.js';
 
 // --- Constants ---
@@ -98,6 +98,51 @@ const EVA_RATING_KEY = 'celimeluk_eva_rating_2026_09_30';
 
 const RATING_LABELS = ['', 'Çok Zayıf 😞', 'Fena Değil 🙂', 'İyi 👍', 'Çok İyi 🌟', 'Mükemmel! 🏆'];
 
+async function saveRatingToDatabase(ratingVal) {
+  if (!ratingVal || ratingVal < 1 || ratingVal > 5) return;
+  try {
+    const ready = await ensureFirebaseReady();
+    if (!ready) return;
+
+    const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
+    const db = getDb();
+    if (!db) return;
+
+    const user = getCurrentUser();
+    const deviceId = getDeviceId();
+    const deviceInfo = getDeviceInfo();
+    const date = getLocalDateString();
+    const playerNameStored = localStorage.getItem(NAME_KEY) || 'Misafir Oyuncu';
+    const name = user?.displayName || playerNameStored;
+
+    // Belge ID: Giriş yapmışsa `${user.uid}`, misafirse `${deviceId}`
+    const docId = user?.uid || deviceId;
+    const ratingRef = fs.doc(db, 'ratings', docId);
+
+    const payload = {
+      rating: Number(ratingVal),
+      ratingLabel: RATING_LABELS[ratingVal] || '',
+      userName: name,
+      userEmail: user?.email || '',
+      uid: user?.uid || null,
+      photoURL: user?.photoURL || '',
+      isGuest: !user,
+      deviceId,
+      devicePlatform: deviceInfo.platform || '',
+      deviceType: deviceInfo.deviceType || '',
+      browserName: deviceInfo.browserName || '',
+      date,
+      updatedAt: new Date().toISOString(),
+      timestamp: fs.serverTimestamp()
+    };
+
+    await fs.setDoc(ratingRef, payload, { merge: true });
+    console.log('Değerlendirme Firestore ratings koleksiyonuna kaydedildi:', docId, payload);
+  } catch (err) {
+    console.warn('Değerlendirme Firestore kaydetme uyarısı:', err);
+  }
+}
+
 function showEvaModalIfNeeded() {
   const alreadySeen = localStorage.getItem(EVA_MODAL_KEY);
   if (alreadySeen) return;
@@ -116,7 +161,8 @@ function showEvaModalIfNeeded() {
   // Daha önce verilmiş puan varsa göster
   const savedRating = localStorage.getItem(EVA_RATING_KEY);
   if (savedRating) {
-    applyEvaRating(parseInt(savedRating, 10), false);
+    const parsed = parseInt(savedRating, 10);
+    applyEvaRating(parsed, false);
     const closeBtn = document.getElementById('eva-close-btn');
     if (closeBtn) closeBtn.disabled = false;
   }
@@ -145,14 +191,20 @@ function showEvaModalIfNeeded() {
         applyEvaRating(val, true);
         const closeBtn = document.getElementById('eva-close-btn');
         if (closeBtn) closeBtn.disabled = false;
+        // Firestore'a değerlendirmeyi kaydet
+        saveRatingToDatabase(val);
       });
     });
   }
 
-  // Kapat butonu
+  // Kapat butonu ("Oyuna Başla")
   const closeBtn = document.getElementById('eva-close-btn');
   if (closeBtn) {
     closeBtn.addEventListener('click', () => {
+      const ratingVal = parseInt(localStorage.getItem(EVA_RATING_KEY) || '0', 10);
+      if (ratingVal > 0) {
+        saveRatingToDatabase(ratingVal);
+      }
       localStorage.setItem(EVA_MODAL_KEY, '1');
       modal.close();
       // İmzalı değil ise isim modalı açılsın
@@ -254,6 +306,12 @@ async function handleAuthChange(user) {
     recordDeviceSession(user);
     // İstatistikleri arka planda buluttan eşitle
     syncUserStatsFromCloud(user).catch(e => console.warn('İstatistik senkron uyarısı:', e));
+
+    // Daha önce verilmiş değerlendirme varsa giriş yapan hesaba da bağla
+    const pendingRating = localStorage.getItem(EVA_RATING_KEY);
+    if (pendingRating) {
+      saveRatingToDatabase(parseInt(pendingRating, 10)).catch(() => {});
+    }
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);

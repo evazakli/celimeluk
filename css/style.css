@@ -1569,7 +1569,7 @@ body {
 /* Üst dekoratif şerit */
 .eva-modal-topbar {
   background: linear-gradient(135deg, var(--color-accent) 0%, #7C4DCC 100%);
-  padding: 22px 24px 18px;
+  padding: 16px 20px 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1578,12 +1578,12 @@ body {
 
 .eva-modal-logo {
   font-family: var(--font);
-  font-size: 2.6rem;
+  font-size: 1.55rem;
   font-weight: 800;
   color: #fff;
-  letter-spacing: -1px;
-  text-shadow: 0 2px 8px rgba(0,0,0,0.18);
-  line-height: 1;
+  letter-spacing: 0.03em;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.22);
+  line-height: 1.2;
 }
 
 /* Gövde */
