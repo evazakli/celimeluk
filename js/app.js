@@ -86,8 +86,13 @@ async function init() {
   // Load initial daily game
   await loadDailyGame();
 
-  // EVA duyuru / değerlendirme modalını kontrol et
-  await showEvaModalIfNeeded(getCurrentUser());
+  // Giriş yapılmışsa ve bu hesap henüz oy vermemişse EVA modalını göster
+  if (isSignedIn()) {
+    await showEvaModalIfNeeded(getCurrentUser());
+  } else {
+    // Google ile giriş yapılmamışsa giriş modalını göster
+    setTimeout(() => showNameModal(), 500);
+  }
 }
 
 // ===========================
@@ -97,43 +102,41 @@ const RATING_LABELS = ['', 'Çok Zayıf 😞', 'Fena Değil 🙂', 'İyi 👍', 
 
 function getEvaRatedKey(user = getCurrentUser()) {
   const uid = user ? user.uid : getUid();
-  if (uid) return `celimeluk_eva_rated_${uid}`;
-  const deviceId = getDeviceId();
-  return `celimeluk_eva_rated_guest_${deviceId}`;
+  return uid ? `celimeluk_eva_rated_${uid}` : null;
 }
 
 async function checkAccountHasRated(user = getCurrentUser()) {
-  // Eski tekil global anahtarları temizle (hesaplar arası tam izolasyon için)
+  const uid = user ? user.uid : getUid();
+  if (!uid) return true; // Hesap sahibi olmayan misafire duyuru modalı açılmaz
+
+  // Eski tekil global anahtarları temizle
   try {
     localStorage.removeItem('celimeluk_eva_seen_2026_09_30');
     localStorage.removeItem('celimeluk_eva_rating_2026_09_30');
   } catch (e) {}
 
   const localKey = getEvaRatedKey(user);
-  if (localStorage.getItem(localKey) === 'true') {
+  if (localKey && localStorage.getItem(localKey) === 'true') {
     return true;
   }
 
   // Google ile giriş yapmış hesap için Firestore buluttan kontrol et
-  const uid = user ? user.uid : getUid();
-  if (uid) {
-    try {
-      const ready = await ensureFirebaseReady();
-      if (ready) {
-        const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
-        const db = getDb();
-        if (db) {
-          const ratingRef = fs.doc(db, 'ratings', uid);
-          const snap = await fs.getDoc(ratingRef);
-          if (snap.exists() && Number(snap.data()?.rating) >= 1) {
-            localStorage.setItem(localKey, 'true');
-            return true;
-          }
+  try {
+    const ready = await ensureFirebaseReady();
+    if (ready) {
+      const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
+      const db = getDb();
+      if (db) {
+        const ratingRef = fs.doc(db, 'ratings', uid);
+        const snap = await fs.getDoc(ratingRef);
+        if (snap.exists() && Number(snap.data()?.rating) >= 1) {
+          if (localKey) localStorage.setItem(localKey, 'true');
+          return true;
         }
       }
-    } catch (e) {
-      console.warn('Değerlendirme bulut kontrolü:', e);
     }
+  } catch (e) {
+    console.warn('Değerlendirme bulut kontrolü:', e);
   }
 
   return false;
@@ -150,24 +153,24 @@ async function saveRatingToDatabase(ratingVal, targetUser = getCurrentUser()) {
     if (!db) return;
 
     const user = targetUser || getCurrentUser();
+    if (!user || !user.uid) return;
+
     const deviceId = getDeviceId();
     const deviceInfo = getDeviceInfo();
     const date = getLocalDateString();
-    const playerNameStored = localStorage.getItem(NAME_KEY) || 'Misafir Oyuncu';
-    const name = user?.displayName || playerNameStored;
+    const name = user.displayName || 'Oyuncu';
 
-    // Belge ID: Giriş yapmışsa `${user.uid}`, misafirse `${deviceId}`
-    const docId = user?.uid || deviceId;
+    const docId = user.uid;
     const ratingRef = fs.doc(db, 'ratings', docId);
 
     const payload = {
       rating: Number(ratingVal),
       ratingLabel: RATING_LABELS[ratingVal] || '',
       userName: name,
-      userEmail: user?.email || '',
-      uid: user?.uid || null,
-      photoURL: user?.photoURL || '',
-      isGuest: !user,
+      userEmail: user.email || '',
+      uid: user.uid,
+      photoURL: user.photoURL || '',
+      isGuest: false,
       deviceId,
       devicePlatform: deviceInfo.platform || '',
       deviceType: deviceInfo.deviceType || '',
@@ -181,7 +184,8 @@ async function saveRatingToDatabase(ratingVal, targetUser = getCurrentUser()) {
     console.log('Değerlendirme Firestore ratings koleksiyonuna kaydedildi:', docId, payload);
 
     // Bu hesaba yerel olarak kalıcı "oy verdi" işaretini koy
-    localStorage.setItem(getEvaRatedKey(user), 'true');
+    const localKey = getEvaRatedKey(user);
+    if (localKey) localStorage.setItem(localKey, 'true');
   } catch (err) {
     console.warn('Değerlendirme Firestore kaydetme uyarısı:', err);
   }
@@ -189,6 +193,14 @@ async function saveRatingToDatabase(ratingVal, targetUser = getCurrentUser()) {
 
 let evaListenersSetup = false;
 let currentSelectedRating = 0;
+let evaModalTimer = null;
+
+function cancelPendingEvaModal() {
+  if (evaModalTimer) {
+    clearTimeout(evaModalTimer);
+    evaModalTimer = null;
+  }
+}
 
 function setupEvaModalListeners() {
   if (evaListenersSetup) return;
@@ -228,16 +240,15 @@ function setupEvaModalListeners() {
   const closeBtn = document.getElementById('eva-close-btn');
   if (closeBtn) {
     closeBtn.addEventListener('click', async () => {
+      cancelPendingEvaModal();
       const user = getCurrentUser();
-      if (currentSelectedRating >= 1 && currentSelectedRating <= 5) {
+      if (currentSelectedRating >= 1 && currentSelectedRating <= 5 && user && user.uid) {
         // Bu hesaba kalıcı olarak "değerlendirdi" işaretini koy
-        localStorage.setItem(getEvaRatedKey(user), 'true');
+        const localKey = getEvaRatedKey(user);
+        if (localKey) localStorage.setItem(localKey, 'true');
         saveRatingToDatabase(currentSelectedRating, user);
       }
       modal.close();
-      if (!isSignedIn()) {
-        setTimeout(() => showNameModal(), 400);
-      }
     });
   }
 
@@ -245,40 +256,50 @@ function setupEvaModalListeners() {
   const skipBtn = document.getElementById('eva-skip-btn');
   if (skipBtn) {
     skipBtn.addEventListener('click', () => {
+      cancelPendingEvaModal();
       modal.close();
-      if (!isSignedIn()) {
-        setTimeout(() => showNameModal(), 400);
-      }
     });
   }
 
   modal.addEventListener('cancel', e => e.preventDefault());
 }
 
-let isEvaModalOpening = false;
-
-async function showEvaModalIfNeeded(targetUser = getCurrentUser()) {
+async function showEvaModalIfNeeded(targetUser) {
   setupEvaModalListeners();
 
-  const user = (targetUser !== undefined) ? targetUser : getCurrentUser();
   const modal = document.getElementById('eva-modal');
   if (!modal) return;
 
-  const hasRated = await checkAccountHasRated(user);
-
-  if (hasRated) {
-    // Bu hesap zaten oy vermiş, modal açıksa kapat ve bir daha çıkarma
-    if (modal.open) {
-      modal.close();
-    }
+  // Yalnızca giriş yapmış hesap sahipleri için değerlendirme gösterilir
+  const user = (targetUser !== undefined) ? targetUser : getCurrentUser();
+  if (!user || !user.uid) {
+    cancelPendingEvaModal();
+    if (modal.open) modal.close();
     return;
   }
 
-  // Bu hesap henüz oy vermemiş!
-  // İsmi hesaba özel olarak güncelle
-  const name = user?.displayName?.trim()?.split(/\s+/)[0] ||
-               localStorage.getItem(NAME_KEY) ||
-               'Oyuncu';
+  // 1. Önce HIZLI yerel kontrol (0 milisaniye) - Zaten oy vermişse HİÇBİR ŞEY YAPMADAN ÇIK
+  const localKey = getEvaRatedKey(user);
+  if (localKey && localStorage.getItem(localKey) === 'true') {
+    cancelPendingEvaModal();
+    if (modal.open) modal.close();
+    return;
+  }
+
+  // Bekleyen eski zamanlayıcı varsa iptal et
+  cancelPendingEvaModal();
+
+  // 2. Buluttan kontrol et
+  const hasRated = await checkAccountHasRated(user);
+  if (hasRated) {
+    cancelPendingEvaModal();
+    if (modal.open) modal.close();
+    return;
+  }
+
+  // Bu hesap sahibi henüz oy vermemiş!
+  // İsmi hesaba özel olarak güncelle (Örn: "Merhaba Emre,")
+  const name = user.displayName?.trim()?.split(/\s+/)[0] || 'Oyuncu';
   const nameEl = document.getElementById('eva-user-name');
   if (nameEl) nameEl.textContent = name;
 
@@ -288,16 +309,19 @@ async function showEvaModalIfNeeded(targetUser = getCurrentUser()) {
   const closeBtn = document.getElementById('eva-close-btn');
   if (closeBtn) closeBtn.disabled = true;
 
-  // Modalı ekranda göster
-  if (!modal.open && !isEvaModalOpening) {
-    isEvaModalOpening = true;
-    setTimeout(() => {
-      isEvaModalOpening = false;
-      if (!modal.open) {
-        modal.showModal();
-      }
-    }, 450);
-  }
+  // Modalı açmak için zamanlayıcı kur
+  const targetUid = user.uid;
+  cancelPendingEvaModal();
+  evaModalTimer = setTimeout(() => {
+    evaModalTimer = null;
+    const current = getCurrentUser();
+    // Son kontrol: Kullanıcı hala bu hesap mı, oy vermemiş mi ve modal kapalı mı?
+    if (current && current.uid === targetUid && !modal.open) {
+      const key = getEvaRatedKey(current);
+      if (key && localStorage.getItem(key) === 'true') return;
+      modal.showModal();
+    }
+  }, 350);
 }
 
 function applyEvaRating(val, animate) {
@@ -390,14 +414,14 @@ async function handleAuthChange(user) {
     recordDeviceSession(user);
     // İstatistikleri arka planda buluttan eşitle
     syncUserStatsFromCloud(user).catch(e => console.warn('İstatistik senkron uyarısı:', e));
-    // Bu hesap için duyuru / değerlendirme modalını kontrol et
-    showEvaModalIfNeeded(user);
   } else {
     playerName = '';
     localStorage.removeItem(NAME_KEY);
     localStorage.removeItem('celimeluk_game_guest');
     localStorage.removeItem('celimeluk_game');
-    showEvaModalIfNeeded(null);
+    cancelPendingEvaModal();
+    const evaModal = document.getElementById('eva-modal');
+    if (evaModal?.open) evaModal.close();
   }
   updateAuthUI(user);
   updatePlayerBadge();
@@ -1144,6 +1168,10 @@ function setupButtons() {
 
   // Logout Button
   document.getElementById('btn-logout')?.addEventListener('click', async () => {
+    cancelPendingEvaModal();
+    const evaModal = document.getElementById('eva-modal');
+    if (evaModal?.open) evaModal.close();
+
     await signOutUser();
     playerName = '';
     localStorage.removeItem(NAME_KEY);
@@ -1156,8 +1184,6 @@ function setupButtons() {
     if (currentMode === 'daily') {
       await loadDailyGame();
     }
-    // Misafir hesabı henüz oy vermemişse modalı göster
-    await showEvaModalIfNeeded(null);
   });
 
   // Continue button in profile view
