@@ -141,6 +141,11 @@ async function init() {
     }
   }
 
+  // Günlük oyun oturumunu Firestore game_sessions koleksiyonunda anlık eşitle
+  if (currentMode === 'daily' && game && game.guesses && game.guesses.length > 0) {
+    trackGameSessionProgress(game, { action: 'session_init' });
+  }
+
   // Google ile giriş yapılmamışsa giriş modalını göster
   if (!isSignedIn()) {
     setTimeout(() => showNameModal(), 500);
