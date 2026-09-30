@@ -143,6 +143,9 @@ async function cleanupCorruptedCloudScore(user) {
 }
 
 // --- Auth State Handler ---
+// NOT: Bu fonksiyon notifyAuthListeners tarafından fire-and-forget çağrılır.
+// loadDailyGame() buradan çağrılMAZ çünkü yarış koşuluna yol açar.
+// Oyun yükleme sadece init(), btn-google-login ve btn-logout tarafından yapılır.
 async function handleAuthChange(user) {
   if (user) {
     playerName = user.displayName || 'Oyuncu';
@@ -159,12 +162,6 @@ async function handleAuthChange(user) {
   }
   updateAuthUI(user);
   updatePlayerBadge();
-
-  // Oturum durumu değiştiğinde (Giriş yapıldığında veya çıkış yapıldığında)
-  // oyun tahtasını ve durumunu ilgili kullanıcı/misafir hesabı için temizce yeniden yükle
-  if (currentMode === 'daily') {
-    await loadDailyGame();
-  }
 }
 
 function updateAuthUI(user) {
@@ -605,62 +602,10 @@ async function syncWithCloudTodayGame(user, options = { showToastOnSync: false }
     });
 
     if (!cloudScore) {
-      // 1. Bulutta bu kullanıcıya ait yarım kalmış bir oyun oturumu var mı kontrol et
-      try {
-        const fs = await import('https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js');
-        const db = getDb();
-        if (db) {
-          const sessionRef = fs.doc(db, 'game_sessions', `${uid}_${today}`);
-          const sessionSnap = await fs.getDoc(sessionRef);
-          if (sessionSnap.exists()) {
-            const sData = sessionSnap.data();
-
-            // Geçersiz / sızmış hayalet oturum koruması:
-            // Eğer oturum 'completed_won' veya won=true olarak işaretlenmişse fakat scores koleksiyonunda
-            // geçerli bir skor kaydı yoksa, bu oturum çapraz hesap sızıntısıdır. Silinmeli ve yüklenmemelidir.
-            if (sData && (sData.won || sData.status === 'completed_won')) {
-              console.warn('Geçersiz hayalet oturum temizleniyor:', `${uid}_${today}`);
-              try { await fs.deleteDoc(sessionRef); } catch (e) {}
-              return false;
-            }
-
-            if (sData && sData.targetWord === dayInfo.word &&
-                Array.isArray(sData.guesses) && sData.guesses.length > 0) {
-              const currentGuessesLen = (game && game.guesses) ? game.guesses.length : 0;
-              if (sData.guesses.length > currentGuessesLen) {
-                console.log('Buluttan devam eden oyun oturumu geri yükleniyor:', sData);
-                const restoredInProgress = new Game(dayInfo.word);
-                restoredInProgress.guesses = sData.guesses;
-                restoredInProgress.startTime = sData.startTime || Date.now();
-                restoredInProgress.won = Boolean(sData.won);
-                restoredInProgress.lost = Boolean(sData.lost);
-
-                game = restoredInProgress;
-                saveGameState();
-                resetBoard();
-                restoreGameUI();
-                updateKeyboardColors(keyboardEl, game.letterStatuses);
-
-                if (game.isGameOver) {
-                  showDailyCountdownBanner();
-                  const score = game.won ? calculateGameScore(true, game.guesses.length, game.getElapsedSeconds()) : null;
-                  showResultModal(game.won, game.guesses.length, game.getElapsedSeconds(), game.targetWord, score);
-                } else {
-                  hideDailyCountdownBanner();
-                  startTimer();
-                }
-
-                if (options.showToastOnSync) {
-                  showToast('Yarım kalan tahminleriniz geri yüklendi! 🔄', 3500);
-                }
-                return true;
-              }
-            }
-          }
-        }
-      } catch (errSession) {
-        console.warn('game_sessions geri yükleme kontrolü:', errSession);
-      }
+      // game_sessions koleksiyonu SADECE izleme amaçlıdır.
+      // Çapraz hesap sızıntısını engellemek için hiçbir zaman game_sessions'dan
+      // oyun durumu geri yüklenmez. Çapraz cihaz senkronizasyonu YALNIZCA
+      // scores koleksiyonu üzerinden (UID bazlı, güvenli) yapılır.
 
       // Self-healing: if Firestore has NO score for today, but local state was corrupted
       // with a fake 1-guess win of today's word without any actual gameplay
